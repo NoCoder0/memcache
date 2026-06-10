@@ -29,6 +29,7 @@
 #include "smem_bm_def.h"
 #include "mmc.h"
 #include "common/mmc_functions.h"
+#include "common/mmc_ip_validator.h"
 
 namespace ock {
 namespace mmc {
@@ -116,6 +117,7 @@ public:
     {
         return mInitialized;
     }
+    static std::string ResolveUrlField(const std::string &field, const std::string &fieldName = "");
 
 private:
     bool SetWithStrAutoConvert(const std::string &key, const std::string &value);
@@ -141,6 +143,8 @@ private:
     void ValidateItem(const std::string &itemKey, std::vector<std::string> &errors);
 
     void LoadConfigurations();
+
+    void ResolveAllUrlDomains();
 
     virtual void LoadDefault() {}
 
