@@ -247,8 +247,6 @@ std::vector<int> MmcacheStore::BatchRemove(const std::vector<std::string> &keys)
         MMC_LOG_DEBUG("key vector is empty");
         return {};
     }
-    MMC_VALIDATE_RETURN(keys.size() <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT,
-                        {MMC_INVALID_PARAM});
 
     results.resize(keys.size(), -1);
     const char **c_keys = new (std::nothrow) const char *[keys.size()];
@@ -304,8 +302,6 @@ std::vector<int> MmcacheStore::BatchIsExist(const std::vector<std::string> &keys
         MMC_LOG_DEBUG("key vector is empty");
         return {};
     }
-    MMC_VALIDATE_RETURN(keys.size() <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT,
-                        {MMC_INVALID_PARAM});
 
     results.resize(keys.size(), -1);
     const char **c_keys = new (std::nothrow) const char *[keys.size()];
@@ -372,7 +368,6 @@ std::vector<KeyInfo> MmcacheStore::BatchGetKeyInfo(const std::vector<std::string
         MMC_LOG_DEBUG("key vector is empty");
         return {};
     }
-    MMC_VALIDATE_RETURN(keys.size() <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT, {});
 
     const char **ckeys = new (std::nothrow) const char *[size];
     if (ckeys == nullptr) {
@@ -426,8 +421,6 @@ std::vector<int> MmcacheStore::BatchPutFrom(const std::vector<std::string> &keys
 {
     const size_t count = keys.size();
     MMC_VALIDATE_RETURN(count > 0, "key vector is empty", {});
-    MMC_VALIDATE_RETURN(count <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT,
-                        {MMC_INVALID_PARAM});
 
     std::vector<int> results(count, -1);
     if (buffers.size() != count || sizes.size() != count) {
@@ -474,8 +467,6 @@ std::vector<int> MmcacheStore::BatchGetInto(const std::vector<std::string> &keys
 {
     size_t count = keys.size();
     MMC_VALIDATE_RETURN(count > 0, "key vector is empty", {});
-    MMC_VALIDATE_RETURN(count <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT,
-                        {MMC_INVALID_PARAM});
 
     std::vector<int> results(count, -1);
     if (buffers.size() != count || sizes.size() != count) {
@@ -582,8 +573,6 @@ std::vector<int> MmcacheStore::BatchPutFromLayers(const std::vector<std::string>
     MMC_ASSERT_RETURN(MmcClientDefault::GetInstance() != nullptr, {});
     const size_t batchSize = keys.size();
     MMC_VALIDATE_RETURN(batchSize > 0, "key vector is empty", {});
-    MMC_VALIDATE_RETURN(batchSize <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT,
-                        {MMC_INVALID_PARAM});
 
     std::vector<int> results(batchSize, MMC_INVALID_PARAM);
 
@@ -701,8 +690,6 @@ std::vector<int> MmcacheStore::BatchGetIntoLayers(const std::vector<std::string>
     MMC_ASSERT_RETURN(MmcClientDefault::GetInstance() != nullptr, {});
     const size_t batchSize = keys.size();
     MMC_VALIDATE_RETURN(batchSize > 0, "key vector is empty", {});
-    MMC_VALIDATE_RETURN(batchSize <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT,
-                        {MMC_INVALID_PARAM});
 
     std::vector<int> results(batchSize, MMC_INVALID_PARAM);
 
@@ -820,8 +807,6 @@ int MmcacheStore::PutBatch(const std::vector<std::string> &keys, std::vector<mmc
 {
     const size_t count = keys.size();
     MMC_VALIDATE_RETURN(count > 0, "key vector is empty", 0);
-    MMC_VALIDATE_RETURN(count <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT,
-                        MMC_INVALID_PARAM);
 
     std::vector<int> results(count, -1);
     if (buffers.size() != count) {
@@ -890,7 +875,6 @@ std::vector<mmc_buffer> MmcacheStore::GetBatch(const std::vector<std::string> &k
 {
     size_t count = keys.size();
     MMC_VALIDATE_RETURN(count > 0, "key vector is empty", {});
-    MMC_VALIDATE_RETURN(count <= MAX_BATCH_OP_COUNT, "key vector length exceeds limit" << MAX_BATCH_OP_COUNT, {});
 
     std::vector<int> results(count, -1);
     std::vector<mmc_buffer> buffers(count, {0, 0, 0, 0});

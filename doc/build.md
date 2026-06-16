@@ -111,10 +111,7 @@ pip install memcache_hybrid-1.0.0-cp311-cp311-linux_aarch64.whl # 修改为实�
 
 2、方式一：环境变量 + 配置文件（兼容原有方式）
 export MMC_META_CONFIG_PATH=/usr/local/memcache_hybrid/latest/config/mmc-meta.conf
-
-进入python控制台或者编写python脚本如下即可拉起进程：
-from memcache_hybrid import MetaService
-MetaService.main()
+python3 -c "from memcache_hybrid import MetaService; MetaService.main()"
 
 3、方式二（推荐）：Python 直接设置配置（无需 MMC_META_CONFIG_PATH）
 from memcache_hybrid import MetaService, MetaConfig
