@@ -13,6 +13,7 @@
 #include "mmc_meta_manager.h"
 
 #include "mmc_logger.h"
+#include "mmc_meta_metric_manager.h"
 #include "mmc_types.h"
 #include "mmc_ptracer.h"
 
@@ -562,10 +563,12 @@ EvictResult MmcMetaManager::EvictCallBackFunction(const std::string &key, const 
     MmcLocation src{UINT32_MAX, srcMedium};
     MmcLocation dst{UINT32_MAX, dstMedium};
     if (dstMedium == MEDIA_NONE || srcMedium == MEDIA_NONE) {
+        MmcMetaMetricManager::GetInstance().IncrementEvictCounter();
         PushRemoveList(key, objMeta);
         return EvictResult::REMOVE; // 向下淘汰已无可能，直接删除
     } else if (dstMedium == MEDIA_SSD && ubsIoEnable_) {
         if (ubsIoProxy_->Exist(key) == 1) {
+            MmcMetaMetricManager::GetInstance().IncrementEvictCounter();
             PushRemoveList(key, objMeta);
             return EvictResult::REMOVE; // 向下淘汰已无可能，直接删除
         }
@@ -574,6 +577,7 @@ EvictResult MmcMetaManager::EvictCallBackFunction(const std::string &key, const 
         if (freeSize < objMeta->Size()) {
             MMC_LOG_WARN("key: " << key << " move to " << dst << " no space:" << freeSize << ", need:"
                                  << objMeta->Size());
+            MmcMetaMetricManager::GetInstance().IncrementEvictCounter();
             PushRemoveList(key, objMeta);
             return EvictResult::REMOVE; // 向下淘汰已无可能，直接删除
         }
@@ -592,6 +596,7 @@ EvictResult MmcMetaManager::EvictCallBackFunction(const std::string &key, const 
         key, src, dst);
     if (!future.valid()) {
         MMC_LOG_WARN("key: " << key << " move blob from " << src << " to " << dst << " failed");
+        MmcMetaMetricManager::GetInstance().IncrementEvictCounter();
         PushRemoveList(key, objMeta);
         return EvictResult::REMOVE; // 向下淘汰失败，直接删除
     }
