@@ -59,6 +59,8 @@ static local_config CreateLocalConfigWithCurrentDefaults()
     config.tls_enable = false;
     config.config_store_tls_enable = false;
     config.hcom_tls_enable = false;
+    config.dynamic_config_enable = false;
+    config.dynamic_config_interval = DEFAULT_DYNAMIC_CONFIG_INTERVAL;
     return config;
 }
 
@@ -394,4 +396,58 @@ TEST_F(TestMmcConfiguration, SetupWithBoundaryValuesTest)
     ASSERT_EQ(clientConfigMax.GetInt(ConfConstant::OCK_MMC_CLIENT_WRITE_THREAD_POOL_SIZE), MAX_THREAD_POOL_SIZE);
     ASSERT_EQ(clientConfigMax.GetInt(ConfConstant::OCK_MMC_CLIENT_AGGREGATE_NUM), MAX_AGGREGATE_NUM);
     ASSERT_EQ(clientConfigMax.GetInt(ConfConstant::OKC_MMC_LOCAL_SERVICE_WORLD_SIZE), MAX_WORLD_SIZE);
+}
+
+TEST_F(TestMmcConfiguration, DynamicConfigDefaultsInLocalServiceConfig)
+{
+    ClientConfig clientConfig;
+    auto config = CreateLocalConfigWithCurrentDefaults();
+    const auto ret = clientConfig.Setup(&config);
+    ASSERT_TRUE(ret);
+
+    mmc_local_service_config_t serviceConfig{};
+    clientConfig.GetLocalServiceConfig(serviceConfig);
+
+    EXPECT_FALSE(serviceConfig.dynamicConfigEnable);
+    EXPECT_EQ(serviceConfig.dynamicConfigInterval, DEFAULT_DYNAMIC_CONFIG_INTERVAL);
+}
+
+TEST_F(TestMmcConfiguration, DynamicConfigSetupWithCustomValues)
+{
+    ClientConfig clientConfig;
+    auto config = CreateLocalConfigWithCurrentDefaults();
+
+    config.dynamic_config_enable = true;
+    config.dynamic_config_interval = 10;
+
+    const auto ret = clientConfig.Setup(&config);
+    ASSERT_TRUE(ret);
+
+    EXPECT_TRUE(clientConfig.GetBool(ConfConstant::OCK_MMC_DYNAMIC_CONFIG_ENABLE));
+    EXPECT_EQ(clientConfig.GetInt(ConfConstant::OCK_MMC_DYNAMIC_CONFIG_INTERVAL), 10);
+}
+
+TEST_F(TestMmcConfiguration, DynamicConfigGetLocalServiceConfig)
+{
+    ClientConfig clientConfig;
+    auto config = CreateLocalConfigWithCurrentDefaults();
+
+    config.dynamic_config_enable = true;
+    config.dynamic_config_interval = 15;
+
+    const auto ret = clientConfig.Setup(&config);
+    ASSERT_TRUE(ret);
+
+    mmc_local_service_config_t serviceConfig{};
+    clientConfig.GetLocalServiceConfig(serviceConfig);
+
+    EXPECT_TRUE(serviceConfig.dynamicConfigEnable);
+    EXPECT_EQ(serviceConfig.dynamicConfigInterval, 15U);
+}
+
+TEST_F(TestMmcConfiguration, DynamicConfigIntervalRangeBounds)
+{
+    EXPECT_EQ(MIN_DYNAMIC_CONFIG_INTERVAL, 1);
+    EXPECT_EQ(MAX_DYNAMIC_CONFIG_INTERVAL, 300);
+    EXPECT_EQ(DEFAULT_DYNAMIC_CONFIG_INTERVAL, 5);
 }

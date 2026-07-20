@@ -130,7 +130,7 @@ private:
     void AsyncUpdateState(BatchUpdateRequest &updateRequest);
     std::future<int32_t> SubmitPutTask(BatchCopyDesc &copyDesc, MediaType mediaType, bool asyncExec);
     std::future<int32_t> SubmitGetTask(BatchCopyDesc &copyDesc, MediaType mediaType, bool asyncExec);
-    
+
     // UBS IO相关数据结构
     struct UbsIoBatchGetData {
         const std::vector<std::string> &keys;

@@ -79,6 +79,9 @@ typedef struct {
     mmc_tls_config hcomTlsConfig;
     mmc_tls_config configStoreTlsConfig;
     bool ubsIoEnable;
+    bool dynamicConfigEnable;
+    uint32_t dynamicConfigInterval;
+    char configFilePath[PATH_MAX_SIZE];
 } mmc_local_service_config_t;
 
 typedef struct {

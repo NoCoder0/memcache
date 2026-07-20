@@ -14,6 +14,8 @@
 
 #include <utility>
 
+constexpr uint32_t DEFAULT_DYNAMIC_CONFIG_INTERVAL = 5;
+
 namespace ock {
 namespace mmc {
 namespace ConfConstant {
@@ -75,6 +77,10 @@ constexpr auto OCK_MMC_CLIENT_AGGREGATE_NUM = std::make_pair("ock.mmc.client.agg
 constexpr auto OCK_MMC_CLIENT_WRITE_THREAD_POOL_SIZE = std::make_pair("ock.mmc.client.write_thread_pool.size", 4);
 
 constexpr auto OCK_MMC_UBS_IO_ENABLE = std::make_pair("ock.mmc.ubs_io.enable", false);
+
+constexpr auto OCK_MMC_DYNAMIC_CONFIG_ENABLE = std::make_pair("ock.mmc.dynamic_config.enable", false);
+constexpr auto OCK_MMC_DYNAMIC_CONFIG_INTERVAL = std::make_pair("ock.mmc.dynamic_config.interval",
+    DEFAULT_DYNAMIC_CONFIG_INTERVAL);
 } // namespace ConfConstant
 
 constexpr int MIN_LOG_ROTATION_FILE_SIZE = 1;
@@ -101,6 +107,9 @@ constexpr int MAX_TIMEOUT_SEC = 600;
 constexpr int MIN_THREAD_POOL_SIZE = 1;
 constexpr int MAX_THREAD_POOL_SIZE = 64;
 constexpr int MAX_AGGREGATE_NUM = 131072; // 128K
+
+constexpr int MIN_DYNAMIC_CONFIG_INTERVAL = 1;
+constexpr int MAX_DYNAMIC_CONFIG_INTERVAL = 300;
 
 constexpr uint64_t MAX_DRAM_SIZE = 1024ULL * 1024ULL * 1024ULL * 1024ULL; // 1TB
 constexpr uint64_t MAX_HBM_SIZE = 1024ULL * 1024ULL * 1024ULL * 1024ULL;  // 1TB

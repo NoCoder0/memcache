@@ -87,6 +87,7 @@ void MetaNetClient::Stop()
 
 Result MetaNetClient::Connect(const std::string &url)
 {
+    std::lock_guard<std::mutex> guard(mutex_);
     NetEngineOptions options;
     NetEngineOptions::ExtractIpPortFromUrl(url, options);
     MMC_ASSERT_RETURN(engine_ != nullptr, MMC_NOT_INITIALIZED);
@@ -94,6 +95,31 @@ Result MetaNetClient::Connect(const std::string &url)
                      "MetaNetClient Connect " << url << " failed");
     ip_ = options.ip;
     port_ = options.port;
+    return MMC_OK;
+}
+
+Result MetaNetClient::UpdateServerUrl(const std::string &url)
+{
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (!started_) {
+        MMC_LOG_WARN("MetaNetClient not started, cannot update server URL");
+        return MMC_NOT_STARTED;
+    }
+
+    NetEngineOptions options;
+    NetEngineOptions::ExtractIpPortFromUrl(url, options);
+    if (ip_ == options.ip && port_ == options.port) {
+        MMC_LOG_INFO("server URL is the same, skip update: " << url);
+        return MMC_OK;
+    }
+
+    MMC_LOG_INFO("update server URL from " << ip_ << ":" << port_ << " to " << options.ip << ":"
+                                          << options.port);
+    serverUrl_ = url;
+    ip_ = options.ip;
+    port_ = options.port;
+    // Lazy: do not disconnect current connection.
+    // When the connection breaks, HandleLinkBroken will use the new ip_/port_ to reconnect.
     return MMC_OK;
 }
 
@@ -150,12 +176,22 @@ Result MetaNetClient::HandleLinkBroken(const NetLinkPtr &link)
     MMC_LOG_INFO(name_ << " link broken");
     MMC_ASSERT_RETURN(engine_ != nullptr, MMC_NOT_INITIALIZED);
     for (uint32_t count = 0; count < retryCount_; count++) {
-        Result ret = engine_->ConnectToPeer(rankId_, ip_, port_, link2Index_, false);
+        // Snapshot ip_/port_ under mutex_ to avoid data race with UpdateServerUrl.
+        // The lock is released before ConnectToPeer and sleep so that UpdateServerUrl
+        // can update ip_/port_ during the sleep; the next retry will pick up the new address.
+        std::string ip;
+        uint64_t port;
+        {
+            std::lock_guard<std::mutex> guard(mutex_);
+            ip = ip_;
+            port = port_;
+        }
+        Result ret = engine_->ConnectToPeer(rankId_, ip, port, link2Index_, false);
         if (ret != MMC_OK) {
-            MMC_LOG_ERROR("MetaNetClient Connect " << ip_ << ", port " << port_ << " failed");
+            MMC_LOG_ERROR("MetaNetClient Connect " << ip << ", port " << port << " failed");
         } else {
             if (retryHandler_ != nullptr) {
-                MMC_LOG_INFO("call retry handler when reconnect to " << ip_ << ", port " << port_);
+                MMC_LOG_INFO("call retry handler when reconnect to " << ip << ", port " << port);
                 return retryHandler_();
             }
             return MMC_OK;
