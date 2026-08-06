@@ -462,6 +462,7 @@ void MmcMetaServiceProcess::Exit()
         httpServer_ = nullptr;
     }
     ptracer_uninit();
+    MmcPeriodicTaskFactory::DestroyInstance();
 }
 
 } // namespace mmc
