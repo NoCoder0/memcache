@@ -244,6 +244,12 @@ public:
     Result Unmount(const MmcLocation &loc);
 
     /**
+     * @brief Clean SSD blobs of a rank from the meta container
+     * @param rank [in] rank whose SSD blobs should be removed
+     */
+    Result CleanSsdBlobs(uint32_t rank);
+
+    /**
      * @brief Get all segment info: rank, medium, size, used size...
      */
     nlohmann::json GetAllSegmentInfo() const;
@@ -398,6 +404,8 @@ private:
                                    const MmcLocation &dst, uint32_t srcRank, std::unique_lock<std::mutex> &guard);
 
     Result RebuildMeta(std::vector<std::pair<std::string, MmcMemBlobDesc>> &blobList);
+
+    Result RemoveBlobsByFilter(uint32_t rank, MediaType mediaType);
 
     void PushRemoveList(const std::string &key, const MmcMemObjMetaPtr &meta, const MmcBlobFilterPtr &filter = nullptr,
                         bool triggerSsdPreFree = false);
