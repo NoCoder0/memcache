@@ -187,10 +187,10 @@ Result MmcMetaService::BmRegister(uint32_t rank, std::vector<uint16_t> mediaType
 Result MmcMetaService::BmUnregister(uint32_t rank, uint16_t mediaType)
 {
     std::lock_guard<std::mutex> guard(mutex_);
-    return UnmountByMediaTypeLocked(rank, mediaType);
+    return BmUnregisterWithoutLock(rank, mediaType);
 }
 
-Result MmcMetaService::UnmountByMediaTypeLocked(uint32_t rank, uint16_t mediaType)
+Result MmcMetaService::BmUnregisterWithoutLock(uint32_t rank, uint16_t mediaType)
 {
     if (!started_) {
         MMC_LOG_ERROR("MetaService (" << name_ << ") is not started");
@@ -232,7 +232,7 @@ Result MmcMetaService::ClearResource(uint32_t rank)
 
     for (const auto &mediaType : mediaTypes) {
         MMC_LOG_INFO("Clear resource {rank, mediaType} -> { " << rank << ", " << mediaType << " }");
-        (void)UnmountByMediaTypeLocked(rank, mediaType);
+        (void)BmUnregisterWithoutLock(rank, mediaType);
     }
 
     // SSD 数据由 UBS IO 管理，未注册为 allocator segment；断链时需单独清理容器中的 SSD blob

@@ -1169,7 +1169,7 @@ Result MmcMetaManager::RebuildMeta(std::vector<std::pair<std::string, MmcMemBlob
     return MMC_OK;
 }
 
-Result MmcMetaManager::RemoveBlobsByFilter(uint32_t rank, MediaType mediaType)
+Result MmcMetaManager::RemoveBlobs(uint32_t rank, MediaType mediaType)
 {
     MmcBlobFilterPtr filter = MmcMakeRef<MmcBlobFilter>(rank, mediaType, NONE);
     if (filter == nullptr) {
@@ -1213,13 +1213,14 @@ Result MmcMetaManager::Unmount(const MmcLocation &loc)
     if (ret != MMC_OK) {
         return ret;
     }
-    ret = RemoveBlobsByFilter(loc.rank_, loc.mediaType_);
+    ret = RemoveBlobs(loc.rank_, loc.mediaType_);
     const Result removeBlobsRet = ret;
     if (removeBlobsRet != MMC_OK) {
         MMC_LOG_ERROR("Remove blobs failed for loc " << loc << ", ret=" << removeBlobsRet);
     }
     ret = globalAllocator_->Unmount(loc);
     if (ret != MMC_OK) {
+        MMC_LOG_ERROR("global allocator unmount failed for loc " << loc << ", ret=" << ret);
         return ret;
     }
     if (removeBlobsRet != MMC_OK) {
@@ -1232,7 +1233,7 @@ Result MmcMetaManager::Unmount(const MmcLocation &loc)
 
 Result MmcMetaManager::CleanSsdBlobs(uint32_t rank)
 {
-    return RemoveBlobsByFilter(rank, MEDIA_SSD);
+    return RemoveBlobs(rank, MEDIA_SSD);
 }
 
 nlohmann::json MmcMetaManager::GetAllSegmentInfo() const
