@@ -400,6 +400,8 @@ TEST_F(TestMmcMetaManager, Alloc_ThresholdEviction)
 
     MmcMemMetaDesc temp;
     metaMng->Get("key2", 1, nullptr, temp);
+    // 释放 Get 添加的读租约，避免 Remove/Stop 的 FreeBlobs 等待租约超时
+    metaMng->UpdateState("key2", loc, MMC_READ_FINISH, 1);
 
     AllocOptions allocReq{SIZE_32K, 1, MEDIA_DRAM, {0}, 0};
     MmcMemMetaDesc newObjMeta;
