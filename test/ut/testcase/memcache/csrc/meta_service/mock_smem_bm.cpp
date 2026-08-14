@@ -9,11 +9,23 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
 */
+#include <atomic>
 #include <map>
 #include "smem_bm.h"
 
 static uint64_t g_spaces[SMEM_MEM_TYPE_BUTT] = {0};
 static std::map<uint64_t, uint64_t> g_registBuffer{};
+static std::atomic<uint32_t> g_joinCount{0};
+
+extern "C" uint32_t MockSmemBmGetJoinCount()
+{
+    return g_joinCount.load(std::memory_order_relaxed);
+}
+
+extern "C" void MockSmemBmResetJoinCount()
+{
+    g_joinCount.store(0, std::memory_order_relaxed);
+}
 
 // 暴露最近一次 smem_bm_create2 入参，便于断言 mmc_bm_proxy 的字段透传逻辑。
 static smem_bm_create_option_t g_lastCreate2Option{};
@@ -83,11 +95,42 @@ void smem_bm_destroy(smem_bm_t handle)
 
 int32_t smem_bm_join(smem_bm_t handle, uint32_t flags)
 {
+    g_joinCount.fetch_add(1, std::memory_order_relaxed);
     return 0;
 }
 
 int32_t smem_bm_leave(smem_bm_t handle, uint32_t flags)
 {
+    return 0;
+}
+
+// 暴露最近一次 smem_bm_set_group_event_handler 注册的回调与上下文，便于测试断言 rejoin 行为。
+static smem_bm_group_event_cb g_lastGroupEventCb = nullptr;
+static void *g_lastGroupEventCtx = nullptr;
+
+extern "C" smem_bm_group_event_cb MockSmemBmGetLastGroupEventCb()
+{
+    return g_lastGroupEventCb;
+}
+
+extern "C" void *MockSmemBmGetLastGroupEventCtx()
+{
+    return g_lastGroupEventCtx;
+}
+
+extern "C" void MockSmemBmResetGroupEventCb()
+{
+    g_lastGroupEventCb = nullptr;
+    g_lastGroupEventCtx = nullptr;
+}
+
+int32_t smem_bm_set_group_event_handler(smem_bm_t handle, smem_bm_group_event_cb cb, void *context)
+{
+    if (cb == nullptr) {
+        return -1;
+    }
+    g_lastGroupEventCb = cb;
+    g_lastGroupEventCtx = context;
     return 0;
 }
 

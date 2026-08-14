@@ -104,6 +104,7 @@ Result MmcLocalServiceDefault::Start(const mmc_local_service_config_t &config)
         std::bind(&MmcLocalServiceDefault::BlobDelete, this, std::placeholders::_1, std::placeholders::_2),
         std::bind(&MmcLocalServiceDefault::BatchCopyBlob, this, std::placeholders::_1, std::placeholders::_2,
                   std::placeholders::_3));
+    bmProxyPtr_->SetPostRejoinCallback(std::bind(&MmcLocalServiceDefault::RegisterBm, this));
     started_ = true;
     if (options_.dynamicConfigEnable && options_.configFilePath[0] != '\0') {
         StartConfigPolling();

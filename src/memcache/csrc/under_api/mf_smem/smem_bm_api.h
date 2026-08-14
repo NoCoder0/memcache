@@ -36,6 +36,7 @@ using smemBmGetRankIdFunc = uint32_t (*)();
 using smemBmCreate2Func = smem_bm_t (*)(uint32_t, const smem_bm_create_option_t *);
 using smemBmDestroyFunc = void (*)(smem_bm_t);
 using smemBmJoinFunc = int32_t (*)(smem_bm_t, uint32_t);
+using smemBmSetGroupEventHandlerFunc = int32_t (*)(smem_bm_t, smem_bm_group_event_cb, void *);
 using smemBmPtrByMemTypeFunc = void *(*)(smem_bm_t, smem_bm_mem_type_t, uint16_t);
 using smemBmGetLocalMemSizeByMemTypeFunc = uint64_t (*)(smem_bm_t, smem_bm_mem_type_t);
 using smemBmCopyFunc = int32_t (*)(smem_bm_t, smem_copy_params_t *, smem_bm_copy_type_t, uint32_t);
@@ -117,6 +118,11 @@ public:
         return gSmemBmJoin(handle, flags);
     }
 
+    static int32_t SmemBmSetGroupEventHandler(smem_bm_t handle, smem_bm_group_event_cb cb, void *context)
+    {
+        return gSmemBmSetGroupEventHandler(handle, cb, context);
+    }
+
     static void *SmemBmPtrByMemType(smem_bm_t handle, smem_bm_mem_type_t memType, uint16_t peerRankId)
     {
         return gSmemBmPtrByMemType(handle, memType, peerRankId);
@@ -188,6 +194,7 @@ private:
     static smemBmCreate2Func gSmemBmCreate2;
     static smemBmDestroyFunc gSmemBmDestroy;
     static smemBmJoinFunc gSmemBmJoin;
+    static smemBmSetGroupEventHandlerFunc gSmemBmSetGroupEventHandler;
     static smemBmPtrByMemTypeFunc gSmemBmPtrByMemType;
     static smemBmGetLocalMemSizeByMemTypeFunc gSmemBmGetLocalMemSizeByMemType;
     static smemBmCopyFunc gSmemBmCopy;

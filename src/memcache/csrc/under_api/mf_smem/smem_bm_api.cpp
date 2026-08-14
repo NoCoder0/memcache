@@ -44,6 +44,7 @@ smemBmGetRankIdFunc MFSmemApi::gSmemBmGetRankId = nullptr;
 smemBmCreate2Func MFSmemApi::gSmemBmCreate2 = nullptr;
 smemBmDestroyFunc MFSmemApi::gSmemBmDestroy = nullptr;
 smemBmJoinFunc MFSmemApi::gSmemBmJoin = nullptr;
+smemBmSetGroupEventHandlerFunc MFSmemApi::gSmemBmSetGroupEventHandler = nullptr;
 smemBmPtrByMemTypeFunc MFSmemApi::gSmemBmPtrByMemType = nullptr;
 smemBmGetLocalMemSizeByMemTypeFunc MFSmemApi::gSmemBmGetLocalMemSizeByMemType = nullptr;
 smemBmCopyFunc MFSmemApi::gSmemBmCopy = nullptr;
@@ -70,6 +71,7 @@ Result MFSmemApi::LoadAllSymbols()
         {reinterpret_cast<void **>(&gSmemBmCreate2), "smem_bm_create2"},
         {reinterpret_cast<void **>(&gSmemBmDestroy), "smem_bm_destroy"},
         {reinterpret_cast<void **>(&gSmemBmJoin), "smem_bm_join"},
+        {reinterpret_cast<void **>(&gSmemBmSetGroupEventHandler), "smem_bm_set_group_event_handler"},
         {reinterpret_cast<void **>(&gSmemBmPtrByMemType), "smem_bm_ptr_by_mem_type"},
         {reinterpret_cast<void **>(&gSmemBmGetLocalMemSizeByMemType), "smem_bm_get_local_mem_size_by_mem_type"},
         {reinterpret_cast<void **>(&gSmemBmCopy), "smem_bm_copy"},
@@ -125,7 +127,7 @@ Result MFSmemApi::LoadLibrary()
     }
 
     gLoaded = true;
-    MMC_LOG_INFO("MFSmemApi LoadLibrary: loaded 22 smem_bm symbols from " << gSmemLibName);
+    MMC_LOG_INFO("MFSmemApi LoadLibrary: loaded 23 smem_bm symbols from " << gSmemLibName);
     return MMC_OK;
 }
 
@@ -144,6 +146,7 @@ void MFSmemApi::ClearAllSymbols()
     gSmemBmCreate2 = nullptr;
     gSmemBmDestroy = nullptr;
     gSmemBmJoin = nullptr;
+    gSmemBmSetGroupEventHandler = nullptr;
     gSmemBmPtrByMemType = nullptr;
     gSmemBmGetLocalMemSizeByMemType = nullptr;
     gSmemBmCopy = nullptr;

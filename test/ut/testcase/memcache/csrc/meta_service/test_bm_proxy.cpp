@@ -10,6 +10,8 @@
  * See the Mulan PSL v2 for more details.
 */
 #include <iostream>
+#include <chrono>
+#include <dlfcn.h>
 #include "gtest/gtest.h"
 #include "mmc_ref.h"
 #include "mmc_blob_allocator.h"
@@ -242,4 +244,165 @@ TEST_F(TestBmProxy, ConcurrentAccess)
     }
 
     ASSERT_EQ(successCount, 5);
+}
+
+namespace {
+using MockGetGroupEventCbFn = smem_bm_group_event_cb (*)();
+using MockGetPtrFn = void *(*)();
+using MockVoidFn = void (*)();
+using MockGetUintFn = uint32_t (*)();
+
+constexpr int kRejoinPollRounds = 200;
+constexpr int kRejoinPollIntervalMs = 10;
+constexpr int kSkipRejoinWaitMs = 50;
+constexpr int kDestroyDuringRejoinRounds = 50;
+
+void *GetLoadedSmemHandle()
+{
+    dlerror();
+    return dlopen("libmf_smem.so", RTLD_NOLOAD | RTLD_LAZY);
+}
+
+smem_bm_group_event_cb GetCapturedGroupEventCb()
+{
+    void *handle = GetLoadedSmemHandle();
+    if (handle == nullptr) {
+        return nullptr;
+    }
+    auto fn = reinterpret_cast<MockGetGroupEventCbFn>(dlsym(handle, "MockSmemBmGetLastGroupEventCb"));
+    return fn != nullptr ? fn() : nullptr;
+}
+
+void *GetCapturedGroupEventCtx()
+{
+    void *handle = GetLoadedSmemHandle();
+    if (handle == nullptr) {
+        return nullptr;
+    }
+    auto fn = reinterpret_cast<MockGetPtrFn>(dlsym(handle, "MockSmemBmGetLastGroupEventCtx"));
+    return fn != nullptr ? fn() : nullptr;
+}
+
+void ResetCapturedGroupEventCb()
+{
+    void *handle = GetLoadedSmemHandle();
+    if (handle == nullptr) {
+        return;
+    }
+    auto fn = reinterpret_cast<MockVoidFn>(dlsym(handle, "MockSmemBmResetGroupEventCb"));
+    if (fn != nullptr) {
+        fn();
+    }
+}
+
+uint32_t GetSmemJoinCount()
+{
+    void *handle = GetLoadedSmemHandle();
+    if (handle == nullptr) {
+        return 0;
+    }
+    auto fn = reinterpret_cast<MockGetUintFn>(dlsym(handle, "MockSmemBmGetJoinCount"));
+    return fn != nullptr ? fn() : 0;
+}
+
+void ResetSmemJoinCount()
+{
+    void *handle = GetLoadedSmemHandle();
+    if (handle == nullptr) {
+        return;
+    }
+    auto fn = reinterpret_cast<MockVoidFn>(dlsym(handle, "MockSmemBmResetJoinCount"));
+    if (fn != nullptr) {
+        fn();
+    }
+}
+} // namespace
+
+TEST_F(TestBmProxy, GroupEventHandler_RegisteredOnInit)
+{
+    ResetCapturedGroupEventCb();
+    ASSERT_EQ(proxy_->InitBm(initConfig_, createConfig_), MMC_OK);
+    smem_bm_group_event_cb cb = GetCapturedGroupEventCb();
+    ASSERT_NE(cb, nullptr);
+    void *ctx = GetCapturedGroupEventCtx();
+    EXPECT_EQ(ctx, static_cast<void *>(proxy_.Get()));
+}
+
+TEST_F(TestBmProxy, RejoinCluster_OnSelfLeave_TriggersJoin)
+{
+    ASSERT_EQ(proxy_->InitBm(initConfig_, createConfig_), MMC_OK);
+    smem_bm_group_event_cb cb = GetCapturedGroupEventCb();
+    ASSERT_NE(cb, nullptr);
+    void *ctx = GetCapturedGroupEventCtx();
+    ASSERT_NE(ctx, nullptr);
+    ResetSmemJoinCount();
+    // mock smem_bm_get_rank_id returns 0, so rankId 0 is self
+    cb(reinterpret_cast<smem_bm_t>(0x1234), 0, SMEM_GROUP_EVENT_LEAVE, ctx);
+    uint32_t count = 0;
+    for (int i = 0; i < kRejoinPollRounds; ++i) {
+        count = GetSmemJoinCount();
+        if (count >= 1) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(kRejoinPollIntervalMs));
+    }
+    EXPECT_GE(count, 1U);
+}
+
+TEST_F(TestBmProxy, RejoinCluster_OnSuccess_InvokesPostRejoinCallback)
+{
+    ASSERT_EQ(proxy_->InitBm(initConfig_, createConfig_), MMC_OK);
+    smem_bm_group_event_cb cb = GetCapturedGroupEventCb();
+    ASSERT_NE(cb, nullptr);
+    void *ctx = GetCapturedGroupEventCtx();
+    ASSERT_NE(ctx, nullptr);
+
+    std::atomic<bool> callbackInvoked{false};
+    proxy_->SetPostRejoinCallback([&callbackInvoked]() -> Result {
+        callbackInvoked.store(true, std::memory_order_release);
+        return MMC_OK;
+    });
+
+    ResetSmemJoinCount();
+    cb(reinterpret_cast<smem_bm_t>(0x1234), 0, SMEM_GROUP_EVENT_LEAVE, ctx);
+
+    bool flagSet = false;
+    uint32_t count = 0;
+    for (int i = 0; i < kRejoinPollRounds; ++i) {
+        count = GetSmemJoinCount();
+        flagSet = callbackInvoked.load(std::memory_order_acquire);
+        if (count >= 1U && flagSet) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(kRejoinPollIntervalMs));
+    }
+    EXPECT_GE(count, 1U);
+    EXPECT_TRUE(flagSet);
+}
+
+TEST_F(TestBmProxy, RejoinCluster_MemcacheLeaving_SkipsRejoin)
+{
+    ASSERT_EQ(proxy_->InitBm(initConfig_, createConfig_), MMC_OK);
+    smem_bm_group_event_cb cb = GetCapturedGroupEventCb();
+    ASSERT_NE(cb, nullptr);
+    void *ctx = GetCapturedGroupEventCtx();
+    ASSERT_NE(ctx, nullptr);
+    proxy_->DestroyBm();
+    ResetSmemJoinCount();
+    cb(reinterpret_cast<smem_bm_t>(0x1234), 0, SMEM_GROUP_EVENT_LEAVE, ctx);
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSkipRejoinWaitMs));
+    EXPECT_EQ(GetSmemJoinCount(), 0U);
+}
+
+TEST_F(TestBmProxy, DestroyBm_DuringRejoin_JoinsCleanly)
+{
+    for (int i = 0; i < kDestroyDuringRejoinRounds; ++i) {
+        ASSERT_EQ(proxy_->InitBm(initConfig_, createConfig_), MMC_OK) << "iter " << i;
+        smem_bm_group_event_cb cb = GetCapturedGroupEventCb();
+        ASSERT_NE(cb, nullptr) << "iter " << i;
+        void *ctx = GetCapturedGroupEventCtx();
+        ASSERT_NE(ctx, nullptr) << "iter " << i;
+        cb(reinterpret_cast<smem_bm_t>(0x1234), 0, SMEM_GROUP_EVENT_LEAVE, ctx);
+        proxy_->DestroyBm();
+    }
 }

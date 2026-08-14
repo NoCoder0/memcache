@@ -267,30 +267,44 @@ kv_event::KvEventStats MmcMetaService::GetKvEventStats() const
 
 void MmcMetaService::Stop()
 {
+    MetaNetServerPtr netServer;
+    {
+        std::lock_guard<std::mutex> guard(mutex_);
+        if (!started_) {
+            MMC_LOG_WARN("MmcMetaService has not been started");
+            return;
+        }
+        UnregisterPeriodicTask("metrics_report");
+        PublishClearedForRanks(CollectRanks(rankMediaTypeMap_));
+        kvEventsPublishActive_ = false;
+        MmcMetaManager *metaManager = nullptr;
+        if (metaMgrProxy_ != nullptr && metaMgrProxy_->GetMetaManager() != nullptr) {
+            metaManager = metaMgrProxy_->GetMetaManager().Get();
+        }
+        if (metaManager != nullptr) {
+            metaManager->SetChangeCallbacks({});
+        }
+        metaBackUpMgrPtr_->Stop();
+        metaMgrProxy_->Stop();
+        // Set started_ = false before releasing the lock so that ClearResource
+        // (invoked by HandleLinkBroken on the net IO thread) returns early
+        // instead of touching stale meta state during teardown.
+        started_ = false;
+        netServer = metaNetServer_;
+        metaNetServer_ = nullptr;
+    }
+    // Stop the net server outside mutex_: engine_->Stop() joins IO threads that
+    // may be running HandleLinkBroken -> ClearResource which needs mutex_.
+    // Holding mutex_ during the join causes a deadlock.
+    if (netServer != nullptr) {
+        netServer->Stop();
+    }
     std::lock_guard<std::mutex> guard(mutex_);
-    if (!started_) {
-        MMC_LOG_WARN("MmcMetaService has not been started");
-        return;
-    }
-    UnregisterPeriodicTask("metrics_report");
-    PublishClearedForRanks(CollectRanks(rankMediaTypeMap_));
-    kvEventsPublishActive_ = false;
-    MmcMetaManager *metaManager = nullptr;
-    if (metaMgrProxy_ != nullptr && metaMgrProxy_->GetMetaManager() != nullptr) {
-        metaManager = metaMgrProxy_->GetMetaManager().Get();
-    }
-    if (metaManager != nullptr) {
-        metaManager->SetChangeCallbacks({});
-    }
-    metaBackUpMgrPtr_->Stop();
-    metaMgrProxy_->Stop();
-    metaNetServer_->Stop();
     kvEvents_.Shutdown();
     confStore_ = nullptr;
     metadata_.clear();
     ock::smem::StoreFactory::DestroyStore(options_.configStoreURL);
     MMC_LOG_INFO("Stop MmcMetaServiceDefault (" << name_ << ") at " << options_.discoveryURL);
-    started_ = false;
 }
 
 void MmcMetaService::PublishClearedForRanks(const std::vector<uint32_t> &ranks)

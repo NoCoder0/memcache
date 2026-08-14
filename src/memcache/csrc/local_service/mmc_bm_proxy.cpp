@@ -12,6 +12,7 @@
 #include "mmc_bm_proxy.h"
 #include <algorithm>
 #include <numeric>
+#include <thread>
 #include "mmc_logger.h"
 #include "mmc_smem_bm_helper.h"
 #include "mmc_ptracer.h"
@@ -29,6 +30,8 @@ Result MmcBmProxy::InitBm(const mmc_bm_init_config_t &initConfig, const mmc_bm_c
         MMC_LOG_INFO("MmcBmProxy " << name_ << " already init");
         return MMC_OK;
     }
+
+    memcacheLeaving_.store(false, std::memory_order_release);
 
     MMC_RETURN_ERROR(MFSmemApi::LoadLibrary(), "Failed to load smem bm library");
 
@@ -73,6 +76,11 @@ Result MmcBmProxy::InitBm(const mmc_bm_init_config_t &initConfig, const mmc_bm_c
         MFSmemApi::SmemBmUninit(0);
         MFSmemApi::SmemUninit();
         return MMC_ERROR;
+    }
+
+    auto eventRet = MFSmemApi::SmemBmSetGroupEventHandler(handle_, &MmcBmProxy::GroupEventHandler, this);
+    if (eventRet != 0) {
+        MMC_LOG_WARN("Failed to set group event handler for " << name_ << ", ret: " << eventRet);
     }
 
     gvas_[MEDIA_HBM] = MFSmemApi::SmemBmPtrByMemType(handle_, SMEM_MEM_TYPE_DEVICE, bmRankId_);
@@ -133,6 +141,13 @@ Result MmcBmProxy::InternalCreateBm(const mmc_bm_create_config_t &createConfig, 
 
 void MmcBmProxy::DestroyBm()
 {
+    memcacheLeaving_.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(rejoinMutex_);
+        if (rejoinThread_.joinable()) {
+            rejoinThread_.join();
+        }
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (!started_) {
         MMC_LOG_WARN("MmcBmProxy (" << name_ << ") is not init");
@@ -149,6 +164,15 @@ void MmcBmProxy::DestroyBm()
     MFSmemApi::CleanupLibrary();
     started_ = false;
     MMC_LOG_INFO("MmcBmProxy (" << name_ << ") is destroyed successfully");
+}
+
+MmcBmProxy::~MmcBmProxy()
+{
+    memcacheLeaving_.store(true, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(rejoinMutex_);
+    if (rejoinThread_.joinable() && rejoinThread_.get_id() != std::this_thread::get_id()) {
+        rejoinThread_.join();
+    }
 }
 
 Result MmcBmProxy::UpdateStoreUrl(const std::string &url)
@@ -473,6 +497,70 @@ Result MmcBmProxy::GvaToVa(uint64_t gva, MediaType mediaType, uint64_t &va)
     }
     va = reinterpret_cast<uint64_t>(vaPtr);
     return MMC_OK;
+}
+
+void MmcBmProxy::GroupEventHandler(smem_bm_t handle, uint32_t rankId, smem_bm_group_event_t event, void *context)
+{
+    if (context == nullptr) {
+        return;
+    }
+    auto *self = static_cast<MmcBmProxy *>(context);
+    if (event != SMEM_GROUP_EVENT_LEAVE) {
+        return;
+    }
+    if (rankId != self->bmRankId_) {
+        return;
+    }
+    if (self->memcacheLeaving_.load(std::memory_order_acquire)) {
+        MMC_LOG_INFO("Leave event triggered by memcache teardown, skip rejoin, name:" << self->name_
+                                                                                      << ", rank:" << rankId);
+        return;
+    }
+    std::lock_guard<std::mutex> lock(self->rejoinMutex_);
+    if (self->memcacheLeaving_.load(std::memory_order_acquire)) {
+        MMC_LOG_INFO("Leave event triggered by memcache teardown, skip rejoin, name:" << self->name_
+                                                                                      << ", rank:" << rankId);
+        return;
+    }
+    if (self->rejoinThread_.joinable()) {
+        MMC_LOG_INFO("Rejoin thread already running, skip, name:" << self->name_ << ", rank:" << rankId);
+        return;
+    }
+    MMC_LOG_INFO("Received self leave event, spawn rejoin thread, name:" << self->name_ << ", rank:" << rankId);
+    self->rejoinThread_ = std::thread(&MmcBmProxy::RejoinCluster, self);
+}
+
+void MmcBmProxy::RejoinCluster()
+{
+    if (memcacheLeaving_.load(std::memory_order_acquire)) {
+        MMC_LOG_INFO("Skip rejoin, memcache is tearing down, name:" << name_);
+        return;
+    }
+    smem_bm_t handle = nullptr;
+    std::function<Result()> postRejoinCb;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!started_ || handle_ == nullptr) {
+            MMC_LOG_WARN("Skip rejoin, bm proxy not ready, name:" << name_);
+            return;
+        }
+        handle = handle_;
+        postRejoinCb = postRejoinCallback_;
+    }
+    MMC_LOG_INFO("Try to rejoin smem bm, name:" << name_ << ", rank:" << bmRankId_);
+    auto ret = MFSmemApi::SmemBmJoin(handle, 0);
+    if (ret != 0) {
+        MMC_LOG_ERROR("Failed to rejoin smem bm, name:" << name_ << ", rank:" << bmRankId_ << ", ret:" << ret);
+        return;
+    }
+    MMC_LOG_INFO("Rejoin smem bm success, name:" << name_ << ", rank:" << bmRankId_);
+    if (postRejoinCb) {
+        auto regRet = postRejoinCb();
+        if (regRet != MMC_OK) {
+            MMC_LOG_ERROR("Post-rejoin register failed, name:" << name_ << ", rank:" << bmRankId_
+                                                               << ", ret:" << regRet);
+        }
+    }
 }
 
 } // namespace mmc

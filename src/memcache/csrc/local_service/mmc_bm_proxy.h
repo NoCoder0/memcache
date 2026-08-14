@@ -13,6 +13,9 @@
 #define MEM_FABRIC_MMC_BM_PROXY_H
 
 #include <mutex>
+#include <atomic>
+#include <thread>
+#include <functional>
 #include <map>
 #include <vector>
 #include "smem_bm_def.h"
@@ -50,7 +53,7 @@ namespace mmc {
 class MmcBmProxy : public MmcReferable {
 public:
     explicit MmcBmProxy(const std::string &name) : name_(name), spaces_{0}, bmRankId_{0} {}
-    ~MmcBmProxy() override = default;
+    ~MmcBmProxy() override;
 
     // 删除拷贝构造函数和赋值运算符
     MmcBmProxy(const MmcBmProxy &) = delete;
@@ -105,18 +108,30 @@ public:
     std::string GetDataOpType() const;
     inline uint32_t RankId() const;
 
+    void SetPostRejoinCallback(std::function<Result()> callback)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        postRejoinCallback_ = std::move(callback);
+    }
+
 private:
     Result InternalCreateBm(const mmc_bm_create_config_t &createConfig, uint32_t worldSize);
+    static void GroupEventHandler(smem_bm_t handle, uint32_t rankId, smem_bm_group_event_t event, void *context);
+    void RejoinCluster();
 
     void *gvas_[MEDIA_NONE]{};
     uint64_t spaces_[MEDIA_NONE];
     smem_bm_t handle_ = nullptr;
     std::string name_;
     bool started_ = false;
+    std::atomic<bool> memcacheLeaving_{false};
     std::mutex mutex_;
+    std::mutex rejoinMutex_;
+    std::thread rejoinThread_;
     uint32_t bmRankId_;
     MediaType mediaType_{MEDIA_NONE};
     mmc_bm_create_config_t createConfig_{};
+    std::function<Result()> postRejoinCallback_;
 };
 
 uint32_t MmcBmProxy::RankId() const
