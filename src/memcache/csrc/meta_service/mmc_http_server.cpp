@@ -510,7 +510,7 @@ bool MmcHttpServer::Start()
     }
 
     running_ = true;
-    MMC_LOG_INFO("HTTP server started on " << host_ << ":" << port_);
+    MMC_LOG_TRACE("HTTP server started on " << host_ << ":" << port_);
     return true;
 }
 
@@ -552,7 +552,7 @@ void MmcHttpServer::Stop()
 
     server_->Stop();
     running_ = false;
-    MMC_LOG_INFO("HTTP server stopped");
+    MMC_LOG_TRACE("HTTP server stopped");
 }
 
 } // namespace mmc

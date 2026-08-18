@@ -82,10 +82,10 @@ std::mutex MmcClientDefault::gClientHandlerMtx;
 
 Result MmcClientDefault::Start(const mmc_client_config_t &config)
 {
-    MMC_LOG_INFO("Starting client " << name_);
+    MMC_LOG_TRACE("Starting client " << name_);
     std::lock_guard<std::mutex> guard(mutex_);
     if (started_) {
-        MMC_LOG_INFO("MetaService " << name_ << " already started");
+        MMC_LOG_TRACE("MetaService " << name_ << " already started");
         return MMC_OK;
     }
     bmProxy_ = MmcBmProxyFactory::GetInstance("bmProxyDefault");
@@ -166,7 +166,7 @@ void MmcClientDefault::Stop()
     if (metaNetClient_ != nullptr) {
         metaNetClient_->Stop();
         metaNetClient_ = nullptr;
-        MMC_LOG_INFO("MetaNetClient stopped.");
+        MMC_LOG_TRACE("MetaNetClient stopped.");
     }
     gvaBlobTracker_.Clear();
 }

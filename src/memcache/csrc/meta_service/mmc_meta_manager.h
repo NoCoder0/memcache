@@ -134,7 +134,7 @@ public:
     {
         std::lock_guard<std::mutex> guard(mutex_);
         if (started_) {
-            MMC_LOG_INFO("MmcMetaMgrProxyDefault already started");
+            MMC_LOG_TRACE("MmcMetaMgrProxyDefault already started");
             return MMC_OK;
         }
         globalAllocator_ = MmcMakeRef<MmcGlobalAllocator>();
@@ -179,7 +179,7 @@ public:
         removeThreadPool_->Destroy();
         MmcMemBlob::ssdPreFreeHandler_ = nullptr;
         started_ = false;
-        MMC_LOG_INFO("Stop MmcMetaManager");
+        MMC_LOG_TRACE("Stop MmcMetaManager");
     }
 
     /**

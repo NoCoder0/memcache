@@ -445,7 +445,7 @@ int MmcMetaServiceProcess::StartHttpServer()
         return ret;
     }
 
-    MMC_LOG_INFO("Starting HTTP server on " << host << ":" << port);
+    MMC_LOG_TRACE("Starting HTTP server on " << host << ":" << port);
     if (leaderElection_ == nullptr) {
         MMC_LOG_INFO("HA snapshot provider will return default state because leader election is not initialized");
     }

@@ -47,7 +47,7 @@ Result MmcMetaService::Start(const mmc_meta_service_config_t &options)
     const int threadCountBase = 4;
     std::lock_guard<std::mutex> guard(mutex_);
     if (started_) {
-        MMC_LOG_INFO("MetaService " << name_ << " already started");
+        MMC_LOG_TRACE("MetaService " << name_ << " already started");
         return MMC_OK;
     }
     options_ = options;
@@ -106,7 +106,7 @@ Result MmcMetaService::Start(const mmc_meta_service_config_t &options)
         }
         return MMC_OK;
     });
-    MMC_LOG_INFO("Config store server started, broken handler registered");
+    MMC_LOG_TRACE("Config store server started, broken handler registered");
 
     MmcMetaManager *metaManager = nullptr;
     if (metaMgrProxy_ != nullptr && metaMgrProxy_->GetMetaManager() != nullptr) {
@@ -128,7 +128,7 @@ Result MmcMetaService::Start(const mmc_meta_service_config_t &options)
     kvEventsPublishActive_ = !options.haEnable;
 
     started_ = true;
-    MMC_LOG_INFO("Started MetaService (" << name_ << ") at " << options_.discoveryURL);
+    MMC_LOG_TRACE("Started MetaService (" << name_ << ") at " << options_.discoveryURL);
 
     StartMetricsReportTask();
     return MMC_OK;
@@ -164,8 +164,8 @@ Result MmcMetaService::BmRegister(uint32_t rank, std::vector<uint16_t> mediaType
     MMC_RETURN_ERROR(metaBackUpMgrPtr_->Load(blobList), "Mount loc { " << rank << " } load backup failed");
     MMC_RETURN_ERROR(metaMgrProxy_->Mount(locs, infos, blobList, storageEnabled),
                      "Mount loc { " << rank << " } failed");
-    MMC_LOG_INFO("Mount loc {rank:" << rank << ", rebuild size:" << blobList.size() << ", mediaNum:" << typeNum
-                                    << "} finish");
+    MMC_LOG_TRACE("Mount loc {rank:" << rank << ", rebuild size:" << blobList.size() << ", mediaNum:" << typeNum
+                                     << "} finish");
     if (blobList.size() == 0) {
         if (rankMediaTypeMap_.find(rank) == rankMediaTypeMap_.end()) {
             rankMediaTypeMap_.insert({rank, {}});
@@ -231,7 +231,7 @@ Result MmcMetaService::ClearResource(uint32_t rank)
     }
 
     for (const auto &mediaType : mediaTypes) {
-        MMC_LOG_INFO("Clear resource {rank, mediaType} -> { " << rank << ", " << mediaType << " }");
+        MMC_LOG_TRACE("Clear resource {rank, mediaType} -> { " << rank << ", " << mediaType << " }");
         (void)BmUnregisterWithoutLock(rank, mediaType);
     }
 
@@ -244,7 +244,7 @@ Result MmcMetaService::ClearResource(uint32_t rank)
     }
     // 断链后客户端已不在，清除其上报的指标，ssd_used 等聚合立即归零，不再保留旧值
     MmcClientMetricStore::GetInstance().Remove(rank);
-    MMC_LOG_INFO("Remove client metrics for rank=" << rank);
+    MMC_LOG_TRACE("Remove client metrics for rank=" << rank);
     return MMC_OK;
 }
 
@@ -304,7 +304,7 @@ void MmcMetaService::Stop()
     confStore_ = nullptr;
     metadata_.clear();
     ock::smem::StoreFactory::DestroyStore(options_.configStoreURL);
-    MMC_LOG_INFO("Stop MmcMetaServiceDefault (" << name_ << ") at " << options_.discoveryURL);
+    MMC_LOG_TRACE("Stop MmcMetaServiceDefault (" << name_ << ") at " << options_.discoveryURL);
 }
 
 void MmcMetaService::PublishClearedForRanks(const std::vector<uint32_t> &ranks)

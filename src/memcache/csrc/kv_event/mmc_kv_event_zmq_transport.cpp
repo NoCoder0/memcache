@@ -151,8 +151,8 @@ std::unique_ptr<IKvEventTransport> MakeZmqPubTransport(const KvEventConfig &conf
         return nullptr;
     }
 
-    MMC_LOG_INFO("kv_events publisher bound on " << config.bindEndpoint << " topic=" << config.topic << " model_name="
-                                                 << config.modelName << " tenant_id=" << config.tenantId);
+    MMC_LOG_TRACE("kv_events publisher bound on " << config.bindEndpoint << " topic=" << config.topic << " model_name="
+                                                  << config.modelName << " tenant_id=" << config.tenantId);
     return std::make_unique<ZmqPubTransport>(context, socket, config.topic);
 }
 
