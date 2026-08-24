@@ -60,3 +60,19 @@ TEST_F(TestMmcMetaContainerLRU, Erase)
     EXPECT_EQ(container->Get("key2", value), MMC_OK);
     EXPECT_EQ(value, 200);
 }
+
+TEST_F(TestMmcMetaContainerLRU, GetKeyCount)
+{
+    EXPECT_EQ(container->GetKeyCount(), 0);
+
+    EXPECT_EQ(container->Insert("key1", 100U), MMC_OK);
+    EXPECT_EQ(container->Insert("key2", 200U), MMC_OK);
+    EXPECT_EQ(container->Insert("key1", 300U), MMC_DUPLICATED_OBJECT);
+    EXPECT_EQ(container->GetKeyCount(), 2U);
+
+    EXPECT_EQ(container->Erase("key1"), MMC_OK);
+    EXPECT_EQ(container->GetKeyCount(), 1);
+
+    EXPECT_EQ(container->EraseAll([](const std::string &, const int &) {}), MMC_OK);
+    EXPECT_EQ(container->GetKeyCount(), 0);
+}

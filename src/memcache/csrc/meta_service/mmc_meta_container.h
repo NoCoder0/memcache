@@ -32,6 +32,7 @@ public:
     virtual void IterateIf(std::function<bool(const Key &, const Value &)> matchFunc,
                            std::map<Key, Value> &matchedValues) = 0;
     virtual void GetAllKeys(std::vector<Key> &keys) = 0;
+    virtual size_t GetKeyCount() = 0;
     virtual Result Promote(const Key &key) = 0;
     virtual Result InsertLru(const Key &key, MediaType type) = 0;
     virtual void MultiLevelElimination(const std::vector<std::pair<uint16_t, uint16_t>> &evictWatermarks,

@@ -73,7 +73,6 @@ public:
 
     Result QueryKey(const std::string &key, nlohmann::json &result) const;
     Result BatchQueryKeys(const std::vector<std::string> &keys, nlohmann::json &result) const;
-    Result GetAllKeys(std::vector<std::string> &keys) const;
     Result GetAllKeysText(std::string &result) const;
 
     Result GetAllSegmentSnapshots(std::vector<RestSegmentSnapshot> &segments) const;
@@ -92,6 +91,7 @@ public:
 
 private:
     RestHaSnapshot GetHaSnapshot() const;
+    Result GetKeyCount(size_t &count) const;
     Result GetSegmentInfoJson(nlohmann::json &result) const;
     Result BuildUsageFromMedium(const std::vector<RestSegmentSnapshot> &segments, const std::string &medium,
                                 RestUsageSnapshot &usage) const;
