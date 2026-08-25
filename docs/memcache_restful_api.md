@@ -434,8 +434,8 @@ memcache_ubs_io_disk_total_bandwidth_bytes_per_sec{rank="0",disk_path="/data/dis
 | `memcache_evict_ssd_delete_total` | counter | — | `MmcMetaMetricSnapshot::evictSsdDeleteCount` | 驱逐时 SSD blob 删除数；支持 per-rank |
 | `memcache_evict_mem_delete_total` | counter | — | `MmcMetaMetricSnapshot::evictMemDeleteCount` | 驱逐时内存层 blob 删除数；支持 per-rank |
 | `memcache_evict_running` | gauge | — | `MmcMetaManager::evictCheck_` | 是否正在执行淘汰(GC)（1=是，0=否） |
-| `memcache_get_hits_dram_total` | counter | — | `MmcMetaMetricSnapshot::getHitDramCount` | 命中 DRAM 的 Get 次数；支持 per-rank |
-| `memcache_get_hits_ssd_total` | counter | — | `MmcMetaMetricSnapshot::getHitSsdCount` | 命中 SSD（触发回温）的 Get 次数；支持 per-rank |
+| `memcache_get_hits_dram_total` | counter | — | `MmcMetaMetricSnapshot::getHitDramCount` | Get 直接命中可读块（HBM/DRAM）返回的 key 数，不触发回温；支持 per-rank |
+| `memcache_get_hits_ssd_total` | counter | — | `MmcMetaMetricSnapshot::getHitSsdCount` | Get 命中 SSD 且回温成功后由回温目标块返回的 key 数；回温失败不计入（计入 `rewarm_failed_total`）；支持 per-rank |
 | `memcache_rewarm_total` | counter | — | `MmcMetaMetricSnapshot::rewarmCount` | SSD→DRAM 回温操作总数；支持 per-rank |
 | `memcache_rewarm_failed_total` | counter | — | `MmcMetaMetricSnapshot::rewarmFailCount` | 失败的回温操作数；支持 per-rank |
 | `memcache_rewarm_bytes_total` | counter | — | `MmcMetaMetricSnapshot::rewarmBytesCount` | 累计回温字节数；支持 per-rank |
@@ -544,8 +544,8 @@ keys=2 evict=0 evict_to_ssd=0 evict_ssd_delete=0 evict_mem_delete=0 rewarm=0 rew
 | `rewarm_fail` | uint | `MmcMetaMetricSnapshot::rewarmFailCount` | 失败的回温操作数 |
 | `rewarm_bytes_total` | uint (bytes) | `MmcMetaMetricSnapshot::rewarmBytesCount` | 累计回温字节数 |
 | `rewarm_bytes_current` | uint (bytes) | `MmcMetaMetricSnapshot::rewarmBytesCurrent` | 当前在途回温字节数 |
-| `get_hit_dram` | uint | `MmcMetaMetricSnapshot::getHitDramCount` | 命中 DRAM 的 Get 次数 |
-| `get_hit_ssd` | uint | `MmcMetaMetricSnapshot::getHitSsdCount` | 命中 SSD（触发回温）的 Get 次数 |
+| `get_hit_dram` | uint | `MmcMetaMetricSnapshot::getHitDramCount` | Get 直接命中可读块（HBM/DRAM）返回的 key 数，不触发回温 |
+| `get_hit_ssd` | uint | `MmcMetaMetricSnapshot::getHitSsdCount` | Get 命中 SSD 且回温成功后由回温目标块返回的 key 数；回温失败不计入（计入 `rewarm_fail`） |
 | `hbm_used` | `used/total` (bytes) | `RestUsageSnapshot`(hbm) | HBM 已用/总容量 |
 | `dram_used` | `used/total` (bytes) | `RestUsageSnapshot`(dram) | DRAM 已用/总容量 |
 | `ssd_used` | `used/total` (bytes) | `RestUsageSnapshot`(ssd) | SSD 已用/总容量；未配置 SSD 时为 `0/0` |
