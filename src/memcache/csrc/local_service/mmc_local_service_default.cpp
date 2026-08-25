@@ -631,6 +631,8 @@ void MmcLocalServiceDefault::HandleUbsIoMetaEvents(int type, const std::vector<s
         if (ret != MMC_OK || response.ret_ != MMC_OK) {
             MMC_LOG_WARN("UBS IO meta DELETE RPC failed, ret=" << ret << ", resp=" << response.ret_
                                                                << ", keyCount=" << keys.size());
+        } else {
+            MMC_LOG_DEBUG("UBS IO meta DELETE RPC success, keyCount=" << keys.size());
         }
     } else {
         MMC_LOG_ERROR("unknown UBS IO meta event type=" << type << ", keyCount=" << keys.size());
