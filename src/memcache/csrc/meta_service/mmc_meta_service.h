@@ -86,6 +86,8 @@ private:
     bool kvEventsPublishActive_{false};
 
     void StartMetricsReportTask();
+    bool IsSsdAvailable(uint32_t rank) const;
+    void OnAsyncFlushComplete(uint32_t rank, const std::vector<std::pair<std::string, MmcMemBlobDesc>> &blobs);
 };
 inline const std::string &MmcMetaService::Name() const
 {

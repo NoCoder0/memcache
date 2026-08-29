@@ -34,15 +34,14 @@ public:
     ~MmcMetaMgrProxy() override = default;
 
     Result Start(uint64_t leaseTtl, uint16_t evictThresholdHigh, uint16_t evictThresholdLow,
-                 uint16_t rewarmDramWatermark, const MmcMetaExtConfig &extConfig = {})
+                 const MmcMetaExtConfig &extConfig = {})
     {
         std::lock_guard<std::mutex> guard(mutex_);
         if (started_) {
             MMC_LOG_TRACE("MmcMetaMgrProxyDefault already started");
             return MMC_OK;
         }
-        metaMangerPtr_ =
-            MmcMakeRef<MmcMetaManager>(leaseTtl, evictThresholdHigh, evictThresholdLow, rewarmDramWatermark, extConfig);
+        metaMangerPtr_ = MmcMakeRef<MmcMetaManager>(leaseTtl, evictThresholdHigh, evictThresholdLow, extConfig);
         if (metaMangerPtr_ == nullptr) {
             MMC_LOG_ERROR("new object failed, probably out of memory");
             return MMC_NEW_OBJECT_FAILED;

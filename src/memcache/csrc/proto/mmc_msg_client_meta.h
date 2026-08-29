@@ -494,6 +494,7 @@ struct UpdateRequest : MsgBase {
 
 struct Response : MsgBase {
     Result ret_ = 0;
+    std::vector<Result> keyResults_;
 
     Response() : MsgBase{0, ML_UPDATE_REQ, 0} {}
     explicit Response(const Result &ret) : MsgBase{0, ML_UPDATE_REQ, 0}, ret_(ret) {};
@@ -504,6 +505,7 @@ struct Response : MsgBase {
         packer.Serialize(msgId);
         packer.Serialize(destRankId);
         packer.Serialize(ret_);
+        packer.Serialize(keyResults_);
         return MMC_OK;
     }
 
@@ -513,6 +515,7 @@ struct Response : MsgBase {
         packer.Deserialize(msgId);
         packer.Deserialize(destRankId);
         packer.Deserialize(ret_);
+        packer.Deserialize(keyResults_);
         return MMC_OK;
     }
 };

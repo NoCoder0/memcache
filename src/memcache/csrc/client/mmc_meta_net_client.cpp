@@ -194,11 +194,32 @@ Result MetaNetClient::UpdateServerUrl(const std::string &url)
 
 Result MetaNetClient::HandleMetaReplicate(const NetContextPtr &context)
 {
+    if (backupPool_ != nullptr) {
+        auto ctx = context;
+        backupPool_->Enqueue([this, ctx]() {
+            MetaReplicateRequest req;
+            Response resp;
+            ctx->GetRequest<MetaReplicateRequest>(req);
+            if (replicateHandler_ != nullptr) {
+                std::vector<Result> keyResults;
+                resp.ret_ = replicateHandler_(req.ops_, req.keys_, req.blobs_, keyResults);
+                resp.keyResults_ = std::move(keyResults);
+            } else {
+                MMC_LOG_ERROR("replicateHandler_ is nullptr");
+                resp.ret_ = MMC_ERROR;
+            }
+            ctx->Reply(req.msgId, resp);
+        });
+        return MMC_OK;
+    }
+
     MetaReplicateRequest req;
     Response resp;
     context->GetRequest<MetaReplicateRequest>(req);
     if (replicateHandler_ != nullptr) {
-        resp.ret_ = replicateHandler_(req.ops_, req.keys_, req.blobs_);
+        std::vector<Result> keyResults;
+        resp.ret_ = replicateHandler_(req.ops_, req.keys_, req.blobs_, keyResults);
+        resp.keyResults_ = std::move(keyResults);
     } else {
         MMC_LOG_DEBUG("replicateHandler_ is nullptr");
         resp.ret_ = MMC_ERROR;

@@ -197,7 +197,6 @@ public:
                                            MAX_INTERVAL_SECONDS),
                       0);
         AddBoolConf(OCK_MMC_META_HA_ENABLE, VStrEnum::Create(OCK_MMC_META_HA_ENABLE.first, BOOL_ENUM_STR), 0);
-        AddBoolConf(OCK_MMC_META_BACKUP_ENABLE, VStrEnum::Create(OCK_MMC_META_BACKUP_ENABLE.first, BOOL_ENUM_STR), 0);
         AddStrConf(OCK_MMC_LOG_LEVEL, VStrEnum::Create(OCK_MMC_LOG_LEVEL.first, LOG_LEVEL_ENUM_STR), 0);
         AddStrConf(OCK_MMC_LOG_PATH, VStrLength::Create(OCK_MMC_LOG_PATH.first, PATH_MAX_LEN), 0);
         AddIntConf(OCK_MMC_LOG_ROTATION_FILE_SIZE,
@@ -215,11 +214,15 @@ public:
         AddIntConf(OKC_MMC_EVICT_THRESHOLD_LOW,
                    VIntRange::Create(OKC_MMC_EVICT_THRESHOLD_LOW.first, MIN_EVICT_THRESHOLD, MAX_EVICT_THRESHOLD - 1),
                    0);
-        AddIntConf(OCK_MMC_REWARM_DRAM_WATERMARK,
-                   VIntRange::Create(OCK_MMC_REWARM_DRAM_WATERMARK.first, MIN_DRAM_WATERMARK, MAX_DRAM_WATERMARK), 0);
         AddBoolConf(OCK_MMC_PREFETCH_ENABLED, VStrEnum::Create(OCK_MMC_PREFETCH_ENABLED.first, BOOL_ENUM_STR), 0);
         AddIntConf(OCK_MMC_PENDING_WAIT_TIMEOUT_MS, VIntRange::Create(OCK_MMC_PENDING_WAIT_TIMEOUT_MS.first, 1, 60000U),
                    0);
+        AddIntConf(
+            OCK_MMC_ASYNC_FLUSH_INTERVAL_MS,
+            VIntRange::Create(OCK_MMC_ASYNC_FLUSH_INTERVAL_MS.first, MIN_FLUSH_INTERVAL_MS, MAX_FLUSH_INTERVAL_MS), 0);
+        AddIntConf(
+            OCK_MMC_ASYNC_FLUSH_BATCH_LIMIT,
+            VIntRange::Create(OCK_MMC_ASYNC_FLUSH_BATCH_LIMIT.first, MIN_FLUSH_BATCH_LIMIT, MAX_FLUSH_BATCH_LIMIT), 0);
         AddIntConf(OCK_MMC_META_LEASE_TTL_MS,
                    VIntRange::Create(OCK_MMC_META_LEASE_TTL_MS.first, MIN_LEASE_TTL_MS, MAX_LEASE_TTL_MS), 0);
 
@@ -278,7 +281,6 @@ public:
         SafeCopy(GetString(ConfConstant::OCK_MMC_META_SERVICE_HTTP_URL), config.httpURL, DISCOVERY_URL_SIZE);
 
         config.haEnable = GetBool(ConfConstant::OCK_MMC_META_HA_ENABLE);
-        config.backupEnable = GetBool(ConfConstant::OCK_MMC_META_BACKUP_ENABLE);
         std::string logLevelStr = GetString(ConfConstant::OCK_MMC_LOG_LEVEL);
         StringToUpper(logLevelStr);
         config.logLevel = MmcOutLogger::Instance().GetLogLevel(logLevelStr);
@@ -287,9 +289,10 @@ public:
 
         config.evictThresholdHigh = GetInt(ConfConstant::OKC_MMC_EVICT_THRESHOLD_HIGH);
         config.evictThresholdLow = GetInt(ConfConstant::OKC_MMC_EVICT_THRESHOLD_LOW);
-        config.rewarmDramWatermark = GetInt(ConfConstant::OCK_MMC_REWARM_DRAM_WATERMARK);
         config.prefetchEnabled = GetBool(ConfConstant::OCK_MMC_PREFETCH_ENABLED);
         config.pendingWaitTimeoutMs = static_cast<uint64_t>(GetInt(ConfConstant::OCK_MMC_PENDING_WAIT_TIMEOUT_MS));
+        config.asyncFlushIntervalMs = static_cast<uint32_t>(GetInt(ConfConstant::OCK_MMC_ASYNC_FLUSH_INTERVAL_MS));
+        config.asyncFlushBatchLimit = static_cast<uint32_t>(GetInt(ConfConstant::OCK_MMC_ASYNC_FLUSH_BATCH_LIMIT));
         config.leaseTtlMs = static_cast<uint64_t>(GetInt(ConfConstant::OCK_MMC_META_LEASE_TTL_MS));
         config.logRotationFileSize = GetInt(ConfConstant::OCK_MMC_LOG_ROTATION_FILE_SIZE) * MB_NUM;
         config.logRotationFileCount = GetInt(ConfConstant::OCK_MMC_LOG_ROTATION_FILE_COUNT);

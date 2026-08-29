@@ -59,7 +59,6 @@ typedef struct {
     char configStoreURL[DISCOVERY_URL_SIZE]; /* composed by schema and url, e.g. tcp:// or etcd:// or zk:// */
     char httpURL[DISCOVERY_URL_SIZE];
     bool haEnable;
-    bool backupEnable;
     int32_t logLevel;
     char logPath[PATH_MAX_SIZE];
     int32_t logRotationFileSize;
@@ -74,9 +73,10 @@ typedef struct {
     uint32_t metricsReportIntervalSeconds;
     /* KV cache event publisher (opt-in, default disabled). */
     mmc_kv_events_config_t kvEvents;
-    uint16_t rewarmDramWatermark;
     bool prefetchEnabled;
     uint64_t pendingWaitTimeoutMs;
+    uint32_t asyncFlushIntervalMs;
+    uint32_t asyncFlushBatchLimit;
 } mmc_meta_service_config_t;
 
 typedef struct {

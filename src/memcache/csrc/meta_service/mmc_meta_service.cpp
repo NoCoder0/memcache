@@ -18,7 +18,9 @@
 #include "mmc_ref.h"
 #include "mmc_client_metric_store.h"
 #include "mmc_meta_mgr_proxy.h"
+#include "mmc_meta_metric_manager.h"
 #include "mmc_meta_net_server.h"
+#include "mmc_config_const.h"
 #include "mmc_rest_api_facade.h"
 #include "mmc_smem_bm_helper.h"
 #include "spdlogger4c.h"
@@ -54,6 +56,18 @@ Result MmcMetaService::Start(const mmc_meta_service_config_t &options)
     MMC_VALIDATE_RETURN(options.evictThresholdHigh > options.evictThresholdLow,
                         "invalid param, evictThresholdHigh must large than evictThresholdLow", MMC_INVALID_PARAM);
     options_.leaseTtlMs = options.leaseTtlMs == 0 ? MMC_DATA_TTL_MS : options.leaseTtlMs;
+    MMC_VALIDATE_RETURN(options.asyncFlushIntervalMs >= MIN_FLUSH_INTERVAL_MS &&
+                            options.asyncFlushIntervalMs <= MAX_FLUSH_INTERVAL_MS,
+                        "invalid param, asyncFlushIntervalMs must be in range [" +
+                            std::to_string(MIN_FLUSH_INTERVAL_MS) + ", " + std::to_string(MAX_FLUSH_INTERVAL_MS) + "]",
+                        MMC_INVALID_PARAM);
+    options_.asyncFlushIntervalMs = options.asyncFlushIntervalMs;
+    MMC_VALIDATE_RETURN(options.asyncFlushBatchLimit >= MIN_FLUSH_BATCH_LIMIT &&
+                            options.asyncFlushBatchLimit <= MAX_FLUSH_BATCH_LIMIT,
+                        "invalid param, asyncFlushBatchLimit must be in range [" +
+                            std::to_string(MIN_FLUSH_BATCH_LIMIT) + ", " + std::to_string(MAX_FLUSH_BATCH_LIMIT) + "]",
+                        MMC_INVALID_PARAM);
+    options_.asyncFlushBatchLimit = options.asyncFlushBatchLimit;
     MMC_VALIDATE_RETURN(options_.leaseTtlMs > 0, "invalid param, leaseTtlMs must be greater than 0", MMC_INVALID_PARAM);
 
     metaNetServer_ = MmcMakeRef<MetaNetServer>(this, name_ + "_MetaServer").Get();
@@ -72,20 +86,30 @@ Result MmcMetaService::Start(const mmc_meta_service_config_t &options)
     netOptions.logLevel = options_.logLevel;
     MMC_RETURN_ERROR(metaNetServer_->Start(netOptions), "Failed to start net server of meta service " << name_);
 
-    metaBackUpMgrPtr_ = MMCMetaBackUpMgrFactory::GetInstance("DefaultMetaBackup");
-    MMCMetaBackUpConfPtr defaultPtr = MmcMakeRef<MMCMetaBackUpConfDefault>(metaNetServer_).Get();
-    MMC_ASSERT_LOG_AND_RETURN(metaBackUpMgrPtr_ != nullptr, "metaBackUpMgrPtr_ is nullptr", MMC_MALLOC_FAILED);
-    if (options.haEnable || options.backupEnable) {
-        MMC_RETURN_ERROR(metaBackUpMgrPtr_->Start(defaultPtr), "metaBackUpMgr start failed");
-    }
-
     metaMgrProxy_ = MmcMakeRef<MmcMetaMgrProxy>(metaNetServer_).Get();
     MmcMetaExtConfig extConfig{};
     extConfig.prefetchEnabled = options.prefetchEnabled;
-    extConfig.pendingWaitTimeoutMs = options.pendingWaitTimeoutMs;
-    MMC_RETURN_ERROR(metaMgrProxy_->Start(options_.leaseTtlMs, options.evictThresholdHigh, options.evictThresholdLow,
-                                          options.rewarmDramWatermark, extConfig),
-                     "Failed to start meta mgr proxy of meta service " << name_);
+    extConfig.pendingWaitTimeoutMs = options_.pendingWaitTimeoutMs;
+    MMC_RETURN_ERROR(
+        metaMgrProxy_->Start(options_.leaseTtlMs, options.evictThresholdHigh, options.evictThresholdLow, extConfig),
+        "Failed to start meta mgr proxy of meta service " << name_);
+
+    metaBackUpMgrPtr_ = MMCMetaBackUpMgrFactory::GetInstance("DefaultMetaBackup");
+    auto backupConf = MmcMakeRef<MMCMetaBackUpConfDefault>(metaNetServer_);
+    MMC_ASSERT_LOG_AND_RETURN(backupConf.Get() != nullptr, "backupConf.Get() is nullptr", MMC_MALLOC_FAILED);
+    MMC_ASSERT_LOG_AND_RETURN(metaBackUpMgrPtr_ != nullptr, "metaBackUpMgrPtr_ is nullptr", MMC_MALLOC_FAILED);
+    // backup 通道默认启动，服务于异步刷盘和 Rewarm
+    MMC_LOG_TRACE("Meta backup channel starting, ha=" << options_.haEnable
+                                                      << ", async_flush_interval=" << options_.asyncFlushIntervalMs);
+    backupConf->Setup(
+        options.asyncFlushIntervalMs, options.asyncFlushBatchLimit,
+        std::bind(&MmcMetaService::IsSsdAvailable, this, std::placeholders::_1),
+        std::bind(&MmcMetaService::OnAsyncFlushComplete, this, std::placeholders::_1, std::placeholders::_2));
+    if (metaMgrProxy_ != nullptr && metaMgrProxy_->GetMetaManager() != nullptr) {
+        backupConf->rewarmPool_ = metaMgrProxy_->GetMetaManager()->GetRewarmThreadPool();
+    }
+    MMCMetaBackUpConfPtr defaultPtr = Convert<MMCMetaBackUpConfDefault, MMCMetaBackUpConf>(backupConf);
+    MMC_RETURN_ERROR(metaBackUpMgrPtr_->Start(defaultPtr), "metaBackUpMgr start failed");
 
     NetEngineOptions configStoreOpt{};
     NetEngineOptions::ExtractIpPortFromUrl(options_.configStoreURL, configStoreOpt);
@@ -343,6 +367,24 @@ void MmcMetaService::StartMetricsReportTask()
     });
     if (ret != MMC_OK) {
         MMC_LOG_ERROR("Failed to start metrics report task");
+    }
+}
+
+bool MmcMetaService::IsSsdAvailable(uint32_t rank) const
+{
+    return metaMgrProxy_ != nullptr && metaMgrProxy_->GetMetaManager() != nullptr &&
+           metaMgrProxy_->GetMetaManager()->IsSsdAvailable(rank);
+}
+
+void MmcMetaService::OnAsyncFlushComplete(uint32_t rank,
+                                          const std::vector<std::pair<std::string, MmcMemBlobDesc>> &blobs)
+{
+    auto &metricMgr = MmcMetaMetricManager::GetInstance();
+    if (metaMgrProxy_ != nullptr && metaMgrProxy_->GetMetaManager() != nullptr) {
+        for (const auto &[key, desc] : blobs) {
+            metaMgrProxy_->GetMetaManager()->AddSsdBlob(key, desc);
+            metricMgr.IncrementAsyncFlushBlobAdded(rank, desc.size_);
+        }
     }
 }
 

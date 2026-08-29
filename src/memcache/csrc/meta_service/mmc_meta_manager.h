@@ -35,7 +35,6 @@ namespace mmc {
 constexpr int METAMGR_POOL_BASE = 16;
 constexpr int REWARM_POOL_BASE = 32;
 constexpr int REMOVE_POOL_BASE = 16;
-constexpr uint16_t DEFAULT_REWARM_HIGH_WATERMARK = 95U;
 
 struct MmcMetaChangeCallbacks {
     using Callback = std::function<void(const std::string &key, uint32_t rank, uint16_t mediaType)>;
@@ -121,9 +120,9 @@ class MmcMetaManager : public MmcReferable {
 
 public:
     explicit MmcMetaManager(uint64_t defaultTtl, uint16_t evictThresholdHigh, uint16_t evictThresholdLow,
-                            uint16_t rewarmDramWatermark, const MmcMetaExtConfig &extConfig = {})
+                            const MmcMetaExtConfig &extConfig = {})
         : defaultTtlMs_(defaultTtl == 0 ? MMC_DATA_TTL_MS : defaultTtl), evictThresholdHigh_(evictThresholdHigh),
-          evictThresholdLow_(evictThresholdLow), rewarmDramWatermark_(rewarmDramWatermark), extConfig_(extConfig)
+          evictThresholdLow_(evictThresholdLow), extConfig_(extConfig)
     {}
 
     ~MmcMetaManager() override
@@ -327,11 +326,6 @@ public:
         return defaultTtlMs_;
     }
 
-    uint16_t GetRewarmWatermark(MediaType media) const
-    {
-        return rewarmDramWatermark_;
-    }
-
     std::vector<std::pair<uint16_t, uint16_t>> GetEvictWatermark() const
     {
         std::vector<std::pair<uint16_t, uint16_t>> result(MEDIA_NONE);
@@ -375,6 +369,7 @@ public:
 
     // UBS IO metadata event handlers
     Result RemoveSsdBlob(const std::string &key, uint32_t rank);
+    Result AddSsdBlob(const std::string &key, const MmcMemBlobDesc &desc);
 
     bool IsSsdAvailable(uint32_t rank) const
     {
@@ -414,18 +409,13 @@ private:
     EvictResult EvictCallBackFunction(const std::string &key, const MmcMemObjMetaPtr &objMeta, MediaType srcMediaType);
 
     EvictResult EvictRemoveSrc(const std::string &key, const MmcMemObjMetaPtr &objMeta,
-                               const MmcBlobFilterPtr &srcFilter, uint32_t evictRank, MediaType srcMediaType,
-                               MediaType dstMedium, bool isSsdDelete);
+                               const MmcBlobFilterPtr &srcFilter, MediaType srcMediaType, MediaType dstMedium);
     EvictResult EvictRemoveSrc(const std::string &key, const MmcMemObjMetaPtr &objMeta, MediaType srcMediaType,
-                               MediaType dstMedium, bool isSsdDelete);
-
-    bool HandleEvictSsdBranch(const std::string &key, const MmcMemObjMetaPtr &objMeta,
-                              const MmcBlobFilterPtr &srcFilter, uint32_t evictRank, MediaType srcMediaType,
-                              EvictResult &outResult);
+                               MediaType dstMedium);
 
     EvictResult DispatchMoveBlob(const std::string &key, const MmcMemObjMetaPtr &objMeta,
-                                 const MmcBlobFilterPtr &srcFilter, uint32_t evictRank, const MmcLocation &src,
-                                 const MmcLocation &dst, MediaType srcMediaType, MediaType dstMedium);
+                                 const MmcBlobFilterPtr &srcFilter, const MmcLocation &src, const MmcLocation &dst,
+                                 MediaType srcMediaType, MediaType dstMedium);
 
     Result BlobDeleteRpc(const std::string &key, const MmcMemBlobDesc &blob);
 
@@ -504,7 +494,6 @@ private:
     uint64_t defaultTtlMs_; /* default ttl in milliseconds */
     uint16_t evictThresholdHigh_;
     uint16_t evictThresholdLow_;
-    uint16_t rewarmDramWatermark_;
     MmcMetaExtConfig extConfig_;
     MetaNetServerPtr metaNetServer_;
     MmcThreadPoolPtr threadPool_;

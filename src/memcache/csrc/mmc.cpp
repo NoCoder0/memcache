@@ -46,7 +46,6 @@ mmc_meta_service_config_t create_default_meta_config()
     config.logOutputTarget = LOG_OUTPUT_TARGET_FILE;
     config.evictThresholdHigh = 90U;
     config.evictThresholdLow = 80U;
-    config.rewarmDramWatermark = DEFAULT_REWARM_HIGH_WATERMARK;
     config.prefetchEnabled = false;
     config.pendingWaitTimeoutMs = 300U;
     config.leaseTtlMs = MMC_DATA_TTL_MS;

@@ -25,8 +25,6 @@ using namespace std;
 namespace ock {
 namespace mmc {
 
-constexpr uint16_t REWARM_DRAM_WATERMARK = 100U;
-
 class TestMmcMetaManager : public testing::Test {
 public:
     TestMmcMetaManager();
@@ -68,7 +66,7 @@ TEST_F(TestMmcMetaManager, Init)
     MmcLocalMemlInitInfo locInfo{100, 1000};
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -80,7 +78,7 @@ TEST_F(TestMmcMetaManager, PendingGetDoesNotDependOnRewarmWorkerAvailability)
 {
     MmcMetaExtConfig extConfig;
     extConfig.pendingWaitTimeoutMs = 500U;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(2000U, 70U, 60U, REWARM_DRAM_WATERMARK, extConfig);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(2000U, 70U, 60U, extConfig);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
 
     const std::string key = "pending_without_rewarm_worker";
@@ -148,7 +146,7 @@ TEST_F(TestMmcMetaManager, AllocAndFree)
     MmcLocalMemlInitInfo locInfo{0, 1000000};
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -173,7 +171,7 @@ TEST_F(TestMmcMetaManager, AllocUsesPerRequestLeaseTtl)
     MmcLocalMemlInitInfo locInfo{0, 1000000};
 
     const uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -205,7 +203,7 @@ TEST_F(TestMmcMetaManager, AllocAndFreeMulti)
     MmcLocalMemlInitInfo locInfo{0, 1000000};
 
     uint64_t defaultTtl = 200;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -239,7 +237,7 @@ TEST_F(TestMmcMetaManager, GetAndUpdate)
     MmcLocalMemlInitInfo locInfo{0, 1000000};
     // poolInitInfo[loc] = locInfo;
     uint64_t defaultTtl = 200;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -277,7 +275,7 @@ TEST_F(TestMmcMetaManager, LRU)
     MmcLocalMemlInitInfo locInfo{0, 163840};
     uint64_t defaultTtl = 100;
 
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -322,7 +320,7 @@ TEST_F(TestMmcMetaManager, AllocAndExistKey)
     MmcLocation loc{0, MEDIA_DRAM};
     MmcLocalMemlInitInfo locInfo{0, 1000000};
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -345,7 +343,7 @@ TEST_F(TestMmcMetaManager, AllocAndBatchExistKey)
     MmcLocation loc{0, MEDIA_DRAM};
     MmcLocalMemlInitInfo locInfo{0, 1000000};
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -402,7 +400,7 @@ TEST_F(TestMmcMetaManager, Remove)
     MmcLocation loc{0, MEDIA_DRAM};
     MmcLocalMemlInitInfo locInfo{0, 1000000};
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -432,7 +430,7 @@ TEST_F(TestMmcMetaManager, Get_NotAllBlobsReady)
     MmcLocation loc{0, MEDIA_DRAM};
     MmcLocalMemlInitInfo locInfo{0, 1000000};
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -456,7 +454,7 @@ TEST_F(TestMmcMetaManager, Alloc_ThresholdEviction)
     MmcLocation loc{0, MEDIA_DRAM};
     MmcLocalMemlInitInfo locInfo{0, 96 * 1024};
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(loc, locInfo, blobMap, false);
@@ -497,7 +495,7 @@ TEST_F(TestMmcMetaManager, EvictCallback_NoSsd_GoesToRemove)
     uint64_t operateId = 1;
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(dramLoc, dramInfo, blobMap, false);
@@ -533,7 +531,7 @@ TEST_F(TestMmcMetaManager, EvictCallback_AllocatedOnly_GoesToRemove)
     MmcLocation dramLoc{0, MEDIA_DRAM};
     MmcLocalMemlInitInfo dramInfo{0, 96 * 1024};
     uint64_t defaultTtl = 200;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(dramLoc, dramInfo, blobMap, false);
@@ -570,7 +568,7 @@ TEST_F(TestMmcMetaManager, EvictCallback_MoveDownIndependentOfBlobOrder)
     MmcLocalMemlInitInfo ssdInfo{0, 16 * 1024}; // SSD 空间不足一个 32K blob
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     metaMng->Start();
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
     metaMng->Mount(dramLoc, dramInfo, blobMap, false);
@@ -600,7 +598,7 @@ TEST_F(TestMmcMetaManager, EvictCallback_MoveDownIndependentOfBlobOrder)
 TEST_F(TestMmcMetaManager, RewarmBlob_StubCompiles)
 {
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     ASSERT_NE(metaMng, nullptr);
     metaMng->Start();
     // RewarmBlob is a reserved interface, current stub returns MMC_ERROR
@@ -618,7 +616,7 @@ TEST_F(TestMmcMetaManager, EvictCallback_SsdEvictionDelegatesViaRpc)
     MmcLocalMemlInitInfo ssdInfo{0, 64 * 1024}; // SSD 足以容纳一个 32K blob
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
 
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -660,7 +658,7 @@ TEST_F(TestMmcMetaManager, MountSsdAndDram_NoUbsIoProxy)
     MmcLocalMemlInitInfo ssdInfo{0, 1024 * 1024 * 1024};
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     ASSERT_NE(metaMng, nullptr);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
 
@@ -688,7 +686,7 @@ TEST_F(TestMmcMetaManager, RemoveMixedMedia_FreesAllAllocators)
     MmcLocalMemlInitInfo dramInfo{0, 128U * 1024U};
 
     uint64_t defaultTtl = 2000U;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
 
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -730,7 +728,7 @@ TEST_F(TestMmcMetaManager, DramOnlyRemove_SsdPreFreeNoop)
     MmcLocalMemlInitInfo dramInfo{0, 128 * 1024};
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
 
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -770,7 +768,7 @@ TEST_F(TestMmcMetaManager, Get_DramHit_NoSsdRewarm)
     MmcLocalMemlInitInfo dramInfo{0, 128 * 1024};
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
 
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -805,7 +803,7 @@ TEST_F(TestMmcMetaManager, RewarmBlob_NoSsdBlob_ReturnsError)
     MmcLocalMemlInitInfo dramInfo{0, 128 * 1024};
 
     uint64_t defaultTtl = 2000;
-    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U, REWARM_DRAM_WATERMARK);
+    MmcRef<MmcMetaManager> metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 50U);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
 
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -833,9 +831,8 @@ TEST_F(TestMmcMetaManager, GvaAlloc_PendingWriteCannotRead)
     MmcLocation loc{0, MEDIA_DRAM};
     MmcLocalMemlInitInfo locInfo{0, 1000000};
     uint64_t defaultTtl = 2000;
-    uint64_t opId1 = 1;
     uint64_t opId2 = 2;
-    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     ASSERT_TRUE(metaMng != nullptr);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -866,7 +863,7 @@ TEST_F(TestMmcMetaManager, GvaWriteOk_BecomesReadable)
     uint64_t defaultTtl = 3210;
     uint64_t opId1 = 1;
     uint64_t opId2 = 2;
-    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     ASSERT_TRUE(metaMng != nullptr);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -913,7 +910,7 @@ TEST_F(TestMmcMetaManager, AddRemoveLease_WorksForRegularReadableSingleBlob)
     uint64_t defaultTtl = 3210;
     uint64_t opId1 = 1;
     uint64_t opId2 = 2;
-    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     ASSERT_TRUE(metaMng != nullptr);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -948,7 +945,7 @@ TEST_F(TestMmcMetaManager, GvaRemoveAfterReadable_CleansIndex)
     uint64_t defaultTtl = 2000;
     uint64_t opId1 = 1;
     uint64_t opId2 = 2;
-    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     ASSERT_TRUE(metaMng != nullptr);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -991,7 +988,7 @@ TEST_F(TestMmcMetaManager, GvaWriteFail_RemovesKey)
     uint64_t defaultTtl = 2000;
     uint64_t opId1 = 1;
     uint64_t opId2 = 2;
-    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     ASSERT_TRUE(metaMng != nullptr);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;
@@ -1034,7 +1031,7 @@ TEST_F(TestMmcMetaManager, GvaUnmount_CleansSegmentIndex)
     uint64_t defaultTtl = 2000;
     uint64_t opId1 = 1;
     uint64_t opId2 = 2;
-    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U, REWARM_DRAM_WATERMARK);
+    auto metaMng = MmcMakeRef<MmcMetaManager>(defaultTtl, 70U, 60U);
     ASSERT_TRUE(metaMng != nullptr);
     ASSERT_EQ(metaMng->Start(), MMC_OK);
     std::vector<std::pair<std::string, MmcMemBlobDesc>> blobMap;

@@ -101,6 +101,8 @@ TEST_F(TestMmcServiceInterface, MultiLevelEvict)
     metaServiceConfig.logRotationFileSize = 2 * 1024 * 1024;
     metaServiceConfig.logRotationFileCount = 20;
     metaServiceConfig.accTlsConfig.tlsEnable = false;
+    metaServiceConfig.asyncFlushIntervalMs = 1000UL;
+    metaServiceConfig.asyncFlushBatchLimit = 8UL;
     metaServiceConfig.evictThresholdHigh = 80U;
     metaServiceConfig.evictThresholdLow = 60U;
     metaServiceConfig.haEnable = false;
@@ -113,8 +115,8 @@ TEST_F(TestMmcServiceInterface, MultiLevelEvict)
     uint64_t totalSize = SIZE_32K * 10U;
 
     mmc_local_service_config_t localServiceConfig = {
-        "",        0, 0, 1,  "", "",      "", 0, "device_sdma", totalSize, totalSize, totalSize,
-        totalSize, 0, 0, {}, 0,  nullptr, {}, {}};
+        "",        0, 0, 1,  "", "",      "", 0,  "device_sdma", totalSize, totalSize, totalSize,
+        totalSize, 0, 0, {}, 0,  nullptr, {}, {}, false,         0,         "",        {}};
     localServiceConfig.logLevel = INFO_LEVEL;
     localServiceConfig.accTlsConfig.tlsEnable = false;
     UrlStringToChar(metaUrl, localServiceConfig.discoveryURL);
@@ -193,6 +195,8 @@ TEST_F(TestMmcServiceInterface, metaServiceStart)
     metaServiceConfig.logRotationFileSize = 2 * 1024 * 1024;
     metaServiceConfig.logRotationFileCount = 20;
     metaServiceConfig.accTlsConfig.tlsEnable = false;
+    metaServiceConfig.asyncFlushIntervalMs = 1000UL;
+    metaServiceConfig.asyncFlushBatchLimit = 8UL;
     metaServiceConfig.evictThresholdHigh = 70;
     metaServiceConfig.evictThresholdLow = 60U;
     metaServiceConfig.haEnable = true;
@@ -203,8 +207,8 @@ TEST_F(TestMmcServiceInterface, metaServiceStart)
     ASSERT_TRUE(meta_service != nullptr);
 
     mmc_local_service_config_t localServiceConfig = {
-        "",        0, 0, 1,  "", "",      "", 0, "device_sdma", 104857600, 104857600, 104857600,
-        104857600, 0, 0, {}, 0,  nullptr, {}, {}};
+        "",        0, 0, 1,  "", "",      "", 0,  "device_sdma", 104857600, 104857600, 104857600,
+        104857600, 0, 0, {}, 0,  nullptr, {}, {}, false,         0,         "",        {}};
     localServiceConfig.logLevel = INFO_LEVEL;
     localServiceConfig.accTlsConfig.tlsEnable = false;
     UrlStringToChar(metaUrl, localServiceConfig.discoveryURL);

@@ -243,9 +243,6 @@ struct MmcMetaMetricSnapshot {
     uint64_t unmountFailureCount{0};
     // internal global counters
     uint64_t evictCount{0};          // total eviction operations
-    uint64_t evictToSsdCount{0};     // evictions that moved data to SSD
-    uint64_t evictSsdDeleteCount{0}; // SSD blob deletions during eviction
-    uint64_t evictMemDeleteCount{0}; // DRAM/HBM blob deletions during eviction
     uint64_t rewarmCount{0};         // total rewarm operations (SSD->DRAM)
     uint64_t rewarmFailCount{0};     // failed rewarm operations
     uint64_t getHitDramCount{0};     // Get requests served from DRAM
@@ -253,20 +250,21 @@ struct MmcMetaMetricSnapshot {
     uint64_t rewarmBytesCount{0};    // total bytes rewarmed from SSD to DRAM
     uint64_t rewarmBytesCurrent{0};  // current inflight rewarm bytes
     uint64_t keyCount{0};            // current number of stored keys
+    uint64_t asyncFlushBlobAdded{0}; // SSD blobs successfully registered via async flush callback
+    uint64_t asyncFlushBlobBytes{0}; // total bytes flushed via async flush
 
     // per-rank internal counters: key = rank ID, value = counter value
     // Only populated when MMC_ENABLE_PER_RANK_METRICS is enabled.
-    std::unordered_map<uint32_t, uint64_t> evictCountByRank;          // eviction operations per rank
-    std::unordered_map<uint32_t, uint64_t> evictToSsdCountByRank;     // evictions to SSD per rank
-    std::unordered_map<uint32_t, uint64_t> evictSsdDeleteCountByRank; // SSD blob deletions on eviction per rank
-    std::unordered_map<uint32_t, uint64_t> evictMemDeleteCountByRank; // DRAM/HBM blob deletions on eviction per rank
-    std::unordered_map<uint32_t, uint64_t> getHitDramCountByRank;     // Get requests that hit DRAM per rank
+    std::unordered_map<uint32_t, uint64_t> evictCountByRank;      // eviction operations per rank
+    std::unordered_map<uint32_t, uint64_t> getHitDramCountByRank; // Get requests that hit DRAM per rank
     // Get requests that hit SSD (triggered rewarm) per rank
     std::unordered_map<uint32_t, uint64_t> getHitSsdCountByRank;
-    std::unordered_map<uint32_t, uint64_t> rewarmCountByRank;        // rewarm operations per rank
-    std::unordered_map<uint32_t, uint64_t> rewarmFailCountByRank;    // failed rewarm operations per rank
-    std::unordered_map<uint32_t, uint64_t> rewarmBytesByRank;        // total bytes rewarmed per rank
-    std::unordered_map<uint32_t, uint64_t> rewarmBytesCurrentByRank; // current inflight rewarm bytes per rank
+    std::unordered_map<uint32_t, uint64_t> rewarmCountByRank;         // rewarm operations per rank
+    std::unordered_map<uint32_t, uint64_t> rewarmFailCountByRank;     // failed rewarm operations per rank
+    std::unordered_map<uint32_t, uint64_t> rewarmBytesByRank;         // total bytes rewarmed per rank
+    std::unordered_map<uint32_t, uint64_t> rewarmBytesCurrentByRank;  // current inflight rewarm bytes per rank
+    std::unordered_map<uint32_t, uint64_t> asyncFlushBlobAddedByRank; // SSD blobs added via async flush per rank
+    std::unordered_map<uint32_t, uint64_t> asyncFlushBlobBytesByRank; // bytes flushed via async flush per rank
 };
 
 class MmcMetaMetricManager {
@@ -307,39 +305,7 @@ public:
             evictRankedCounter_.Increment(rank);
         }
     }
-    void IncrementEvictToSsdCounter()
-    {
-        evictToSsdCounter_++;
-    }
-    void IncrementEvictToSsdCounter(uint32_t rank)
-    {
-        IncrementEvictToSsdCounter();
-        if (IsPerRankEnabled()) {
-            evictToSsdRankedCounter_.Increment(rank);
-        }
-    }
-    void IncrementEvictSsdDeleteCounter()
-    {
-        evictSsdDeleteCounter_++;
-    }
-    void IncrementEvictSsdDeleteCounter(uint32_t rank)
-    {
-        IncrementEvictSsdDeleteCounter();
-        if (IsPerRankEnabled()) {
-            evictSsdDeleteRankedCounter_.Increment(rank);
-        }
-    }
-    void IncrementEvictMemDeleteCounter()
-    {
-        evictMemDeleteCounter_++;
-    }
-    void IncrementEvictMemDeleteCounter(uint32_t rank)
-    {
-        IncrementEvictMemDeleteCounter();
-        if (IsPerRankEnabled()) {
-            evictMemDeleteRankedCounter_.Increment(rank);
-        }
-    }
+
     void IncrementGetHitDramCounter()
     {
         getHitDramCounter_++;
@@ -417,6 +383,15 @@ public:
             rewarmBytesCurrentRankedCounter_.Decrement(rank, bytes);
         }
     }
+    void IncrementAsyncFlushBlobAdded(uint32_t rank, uint64_t bytes)
+    {
+        asyncFlushBlobAddedCounter_++;
+        asyncFlushBlobBytesCounter_ += static_cast<int64_t>(bytes);
+        if (IsPerRankEnabled()) {
+            asyncFlushBlobAddedRankedCounter_.Increment(rank);
+            asyncFlushBlobBytesRankedCounter_.Increment(rank, bytes);
+        }
+    }
     void SetKeyCount(const size_t count)
     {
         keyCountGauge_ = static_cast<int64_t>(count);
@@ -489,9 +464,6 @@ private:
     prometheus::simpleapi::counter_metric_t unmountSuccessCounter_;
     prometheus::simpleapi::counter_metric_t unmountFailureCounter_;
     prometheus::simpleapi::counter_metric_t evictCounter_;
-    prometheus::simpleapi::counter_metric_t evictToSsdCounter_;
-    prometheus::simpleapi::counter_metric_t evictSsdDeleteCounter_;
-    prometheus::simpleapi::counter_metric_t evictMemDeleteCounter_;
     prometheus::simpleapi::counter_metric_t rewarmCounter_;
     prometheus::simpleapi::counter_metric_t rewarmFailCounter_;
     prometheus::simpleapi::counter_metric_t getHitDramCounter_;
@@ -520,15 +492,16 @@ private:
 
     // per-rank internal counters (eviction + rewarm)
     SimplePerRankCounter evictRankedCounter_;
-    SimplePerRankCounter evictToSsdRankedCounter_;
-    SimplePerRankCounter evictSsdDeleteRankedCounter_;
-    SimplePerRankCounter evictMemDeleteRankedCounter_;
     SimplePerRankCounter getHitDramRankedCounter_;
     SimplePerRankCounter getHitSsdRankedCounter_;
     SimplePerRankCounter rewarmRankedCounter_;
     SimplePerRankCounter rewarmFailRankedCounter_;
     SimplePerRankCounter rewarmBytesRankedCounter_;
     SimplePerRankCounter rewarmBytesCurrentRankedCounter_;
+    prometheus::simpleapi::counter_metric_t asyncFlushBlobAddedCounter_;
+    prometheus::simpleapi::counter_metric_t asyncFlushBlobBytesCounter_;
+    SimplePerRankCounter asyncFlushBlobAddedRankedCounter_;
+    SimplePerRankCounter asyncFlushBlobBytesRankedCounter_;
 };
 
 } // namespace mmc

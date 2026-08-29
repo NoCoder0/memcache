@@ -93,14 +93,17 @@ TEST_F(TestMmcServiceError, metaService)
     metaServiceConfig.evictThresholdLow = 60U;
     metaServiceConfig.haEnable = true;
     metaServiceConfig.accTlsConfig.tlsEnable = false;
+    metaServiceConfig.asyncFlushIntervalMs = 1000UL;
+    metaServiceConfig.asyncFlushBatchLimit = 8UL;
     // mmc_meta_service_config_t no longer has localSsdSize
     UrlStringToChar(metaUrl, metaServiceConfig.discoveryURL);
     UrlStringToChar(bmUrl, metaServiceConfig.configStoreURL);
     mmc_meta_service_t meta_service = mmcs_meta_service_start(&metaServiceConfig);
     ASSERT_TRUE(meta_service != nullptr);
 
-    mmc_local_service_config_t localServiceConfig = {
-        "", 0, 0, 1, "", "", "", 0, "device_sdma", 0, 0, 104857600, 104857600, 0, 0, {}, 0, nullptr, {}, {}};
+    mmc_local_service_config_t localServiceConfig = {"", 0,  0,         1,         "", "", "", 0, "device_sdma",
+                                                     0,  0,  104857600, 104857600, 0,  0,  {}, 0, nullptr,
+                                                     {}, {}, false,     0,         "", {}};
     localServiceConfig.logLevel = INFO_LEVEL;
     localServiceConfig.accTlsConfig.tlsEnable = false;
     UrlStringToChar(metaUrl, localServiceConfig.discoveryURL);
@@ -225,14 +228,17 @@ TEST_F(TestMmcServiceError, metaServiceRebuild)
     metaServiceConfig.evictThresholdLow = 60U;
     metaServiceConfig.haEnable = true;
     metaServiceConfig.accTlsConfig.tlsEnable = false;
+    metaServiceConfig.asyncFlushIntervalMs = 1000UL;
+    metaServiceConfig.asyncFlushBatchLimit = 8UL;
     // mmc_meta_service_config_t no longer has localSsdSize
     UrlStringToChar(metaUrl, metaServiceConfig.discoveryURL);
     UrlStringToChar(bmUrl, metaServiceConfig.configStoreURL);
     mmc_meta_service_t meta_service = mmcs_meta_service_start(&metaServiceConfig);
     ASSERT_TRUE(meta_service != nullptr);
 
-    mmc_local_service_config_t localServiceConfig = {
-        "", 0, 0, 1, "", "", "", 0, "device_sdma", 0, 0, MF_SIZE, MF_SIZE, 0, 0, {}, 0, nullptr, {}, {}};
+    mmc_local_service_config_t localServiceConfig = {"", 0,  0,       1,       "", "", "", 0, "device_sdma",
+                                                     0,  0,  MF_SIZE, MF_SIZE, 0,  0,  {}, 0, nullptr,
+                                                     {}, {}, false,   0,       "", {}};
     localServiceConfig.logLevel = ERROR_LEVEL;
     localServiceConfig.accTlsConfig.tlsEnable = false;
     UrlStringToChar(metaUrl, localServiceConfig.discoveryURL);

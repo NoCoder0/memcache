@@ -65,6 +65,8 @@ TEST_F(TestBmInit, Init)
     metaServiceConfig.evictThresholdLow = 60U;
     metaServiceConfig.haEnable = true;
     metaServiceConfig.accTlsConfig.tlsEnable = false;
+    metaServiceConfig.asyncFlushIntervalMs = 1000UL;
+    metaServiceConfig.asyncFlushBatchLimit = 8UL;
     // mmc_meta_service_config_t no longer has localSsdSize
     UrlStringToChar(metaUrl, metaServiceConfig.discoveryURL);
     UrlStringToChar(bmUrl, metaServiceConfig.configStoreURL);
@@ -72,8 +74,9 @@ TEST_F(TestBmInit, Init)
     MmcMetaServicePtr metaServicePtr = Convert<MmcMetaService, MmcMetaService>(metaServiceDefault);
     ASSERT_TRUE(metaServicePtr->Start(metaServiceConfig) == MMC_OK);
 
-    mmc_local_service_config_t localServiceConfig1 = {
-        "", 0, 0, 1, "", "", "", 0, "device_sdma", 0, 0, 104857600, 104857600, 0, 0, {}, 0, nullptr, {}, {}};
+    mmc_local_service_config_t localServiceConfig1 = {"", 0,  0,         1,         "", "", "", 0, "device_sdma",
+                                                      0,  0,  104857600, 104857600, 0,  0,  {}, 0, nullptr,
+                                                      {}, {}, false,     0,         "", {}};
     localServiceConfig1.logLevel = INFO_LEVEL;
     localServiceConfig1.accTlsConfig.tlsEnable = false;
     UrlStringToChar(metaUrl, localServiceConfig1.discoveryURL);
@@ -94,8 +97,7 @@ TEST_F(TestBmInit, Init)
     reqAlloc.options_ = AllocOptions(SIZE_32K, 1, MEDIA_HBM, {0}, 0);
     AllocResponse response;
     ASSERT_TRUE(localServiceDefault1->SyncCallMeta(reqAlloc, response, 30) == MMC_OK);
-    ASSERT_TRUE(response.numBlobs_ == 1);
-    ASSERT_TRUE(response.blobs_[0].size_ == SIZE_32K);
+    ASSERT_TRUE(response.numBlobs_ == 1 && response.blobs_[0].size_ == SIZE_32K);
     localServicePtr1->Stop();
     metaServicePtr->Stop();
 }
