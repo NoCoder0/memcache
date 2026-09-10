@@ -47,6 +47,8 @@ mmc_meta_service_config_t create_default_meta_config()
     config.evictThresholdHigh = 90U;
     config.evictThresholdLow = 80U;
     config.prefetchEnabled = false;
+    config.asyncFlushIntervalMs = static_cast<uint32_t>(ConfConstant::OCK_MMC_ASYNC_FLUSH_INTERVAL_MS.second);
+    config.asyncFlushBatchLimit = static_cast<uint32_t>(ConfConstant::OCK_MMC_ASYNC_FLUSH_BATCH_LIMIT.second);
     config.pendingWaitTimeoutMs = 300U;
     config.leaseTtlMs = MMC_DATA_TTL_MS;
     config.accTlsConfig.tlsEnable = false;

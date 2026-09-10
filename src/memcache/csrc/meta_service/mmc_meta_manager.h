@@ -108,6 +108,15 @@ struct MmcMemMetaDesc {
     {
         return size_;
     };
+
+    void FillFromMeta(const MmcMemObjMetaPtr &memObj, std::vector<MmcMemBlobDesc> blobDescs)
+    {
+        prot_ = memObj->Prot();
+        priority_ = memObj->Priority();
+        size_ = memObj->Size();
+        numBlobs_ = static_cast<uint8_t>(blobDescs.size());
+        blobs_ = std::move(blobDescs);
+    }
 };
 
 struct MmcMetaExtConfig {
@@ -384,20 +393,8 @@ private:
     Result TryRewarmForGet(const std::string &key, uint64_t operateId, const MmcMemObjMetaPtr &memObj,
                            MmcMemBlobPtr &lowerBlob, std::unique_lock<std::mutex> &guard, MmcMemBlobPtr &selectedBlob);
 
-    Result CopyBlob(const std::string &key, const MmcMemObjMetaPtr &objMeta, std::unique_lock<std::mutex> &guard,
-                    const MmcMemBlobDesc &srcBlob, const MmcLocation &dstLoc);
-
-    Result CopyBlobToSsd(const std::string &key, const MmcMemObjMetaPtr &objMeta, std::unique_lock<std::mutex> &guard,
-                         const MmcMemBlobDesc &srcBlob, const MmcLocation &dstLoc);
-
-    Result CopyBlobAlloc(const std::string &key, const MmcMemObjMetaPtr &objMeta, const MmcMemBlobDesc &srcBlob,
-                         const MmcLocation &dstLoc, MmcMemBlobPtr &outBlob, MmcMemBlobDesc &outDesc);
-
-    Result CopyBlobToDram(const std::string &key, const MmcMemObjMetaPtr &objMeta, std::unique_lock<std::mutex> &guard,
-                          const MmcMemBlobDesc &srcBlob, const MmcLocation &dstLoc);
-
-    bool HandleMoveBlobExistingDst(const std::string &key, const MmcMemObjMetaPtr &objMeta, const MmcLocation &src,
-                                   const MmcLocation &dst, uint32_t srcRank, std::unique_lock<std::mutex> &guard);
+    Result CopyBlob(const std::string &key, const MmcMemObjMetaPtr &objMeta, const MmcMemBlobDesc &srcBlob,
+                    const MmcLocation &dstLoc);
 
     Result RebuildMeta(std::vector<std::pair<std::string, MmcMemBlobDesc>> &blobList);
 
@@ -423,25 +420,32 @@ private:
 
 private:
     struct RewarmEntry {
-        size_t index;
-        MmcMemObjMetaPtr memObj;
-        MmcMemBlobPtr ssdBlob;
+        size_t index = 0;
+        MmcMemObjMetaPtr memObj = nullptr;
+        MmcMemBlobPtr ssdBlob = nullptr;
         MmcMemBlobDesc ssdDesc;
-        MmcMemBlobPtr dstBlob;
+        MmcMemBlobPtr dstBlob = nullptr;
         MmcMemBlobDesc dstDesc;
         uint32_t opRankId = 0;
         uint32_t opSeq = 0;
+
+        RewarmEntry() = default;
+
+        RewarmEntry(size_t idx, MmcMemObjMetaPtr mo, MmcMemBlobPtr sb, const MmcMemBlobDesc &sd, MmcMemBlobPtr db,
+                    const MmcMemBlobDesc &dd, uint32_t rid, uint32_t seq)
+            : index(idx), memObj(mo), ssdBlob(sb), ssdDesc(sd), dstBlob(db), dstDesc(dd), opRankId(rid), opSeq(seq)
+        {}
+    };
+
+    struct DeferredLockEntry {
+        size_t index;
+        MmcMemObjMetaPtr memObj;
     };
 
     struct PendingRewarmWait {
         size_t index;
         MmcMemObjMetaPtr memObj;
         MmcMemBlobPtr pendingBlob;
-    };
-
-    struct DeferredLockEntry {
-        size_t index;
-        MmcMemObjMetaPtr memObj;
     };
 
     struct BatchRpcData {
