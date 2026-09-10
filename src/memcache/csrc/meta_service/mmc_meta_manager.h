@@ -263,10 +263,24 @@ public:
     void PrefetchKeys(const std::vector<std::string> &keys);
 
     /**
+    * @brief Asynchronously prefetch keys from lower tier to upper tier, grouped by rank.
+    *        Unlike PrefetchKeys (which waits for rewarm completion), it only submits the
+    *        rewarm tasks to the rewarm pool in background and returns immediately.
+    * @param keys          [in] keys of the meta objects to be prefetched
+    */
+    Result PrefetchKeysAsync(const std::vector<std::string> &keys);
+
+    /**
      * @brief Check if a meta object (key) is in memory
      * @param key          [in] key of the meta object
      */
     Result ExistKey(const std::string &key);
+    /**
+     * @brief Batch exist check; prefetch SSD-resident keys via aggregated rewarm
+     * @param keys          [in] keys of the meta objects
+     * @param results       [out] per-key exist results; MMC_OK if exist, MMC_UNMATCHED_KEY otherwise
+     */
+    Result BatchExist(const std::vector<std::string> &keys, std::vector<Result> &results);
 
     /**
      * @brief Rewarm blob from SSD to DRAM (P5: SSD→DRAM回温)
@@ -387,6 +401,8 @@ public:
     }
 
 private:
+    Result ExistKeyCore(const std::string &key, MmcMemObjMetaPtr &memObj, MmcMemBlobPtr &upperBlob,
+                        MmcMemBlobPtr &lowerBlob);
     Result ResolveAndFillMetaDesc(const std::string &key, uint64_t operateId, MmcBlobFilterPtr filterPtr,
                                   const MmcMemObjMetaPtr &memObj, MmcMemMetaDesc &objMeta);
 
@@ -402,13 +418,18 @@ private:
 
     bool CheckActiveLease(const std::string &key, const MmcMemObjMetaPtr &meta, const MmcBlobFilterPtr &filter);
 
-    void PushRemoveList(const std::string &key, const MmcMemObjMetaPtr &meta, const MmcBlobFilterPtr &filter = nullptr,
-                        bool triggerSsdPreFree = false);
+    void PushRemoveList(const std::string &key, const MmcMemObjMetaPtr &meta, const MmcBlobFilterPtr &filter,
+                        bool triggerSsdPreFree);
+
+    // 同步执行删除列表（FreeBlobs + removed 回调）。仅在异步入队失败时兜底调用，
+    // 契约：调用方必须已持有 meta->Mutex()
+    void DoRemoveBlobs(const std::string &key, const MmcMemObjMetaPtr &meta, const MmcBlobFilterPtr &filter,
+                       bool triggerSsdPreFree);
 
     EvictResult EvictCallBackFunction(const std::string &key, const MmcMemObjMetaPtr &objMeta, MediaType srcMediaType);
 
     EvictResult EvictRemoveSrc(const std::string &key, const MmcMemObjMetaPtr &objMeta,
-                               const MmcBlobFilterPtr &srcFilter, MediaType srcMediaType, MediaType dstMedium);
+                               const MmcBlobFilterPtr &srcFilter, MediaType dstMedium);
     EvictResult EvictRemoveSrc(const std::string &key, const MmcMemObjMetaPtr &objMeta, MediaType srcMediaType,
                                MediaType dstMedium);
 
@@ -469,7 +490,8 @@ private:
                               std::vector<DeferredLockEntry> &deferredLockList);
 
     void RewarmRankGroup(uint32_t rank, std::vector<RewarmEntry> &group, const std::vector<std::string> &keys,
-                         uint32_t opRankId, uint32_t opSeq, std::vector<MmcMemMetaDesc> &objMetas);
+                         uint32_t opRankId, uint32_t opSeq, std::vector<MmcMemMetaDesc> &objMetas,
+                         bool attachReadLease = true);
 
     void AttachReadLocks(const std::vector<std::string> &keys, uint32_t opRankId, uint32_t opSeq,
                          std::vector<MmcMemMetaDesc> &objMetas, std::vector<DeferredLockEntry> &deferredLockList);
@@ -485,7 +507,7 @@ private:
                        const MmcMemBlobDesc &dstDesc, MediaType dstMedia);
 
     Result ApplyRewarm(const std::string &key, RewarmEntry &entry, MmcMemBlobPtr &dstBlob, const RewarmCtx &ctx,
-                       MmcMemMetaDesc &objMeta);
+                       MmcMemMetaDesc &objMeta, bool attachReadLease = true);
 
 private:
     std::mutex mutex_;
