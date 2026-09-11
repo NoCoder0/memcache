@@ -446,35 +446,6 @@ private:
     Result BlobDeleteRpc(const std::string &key, const MmcMemBlobDesc &blob);
 
 private:
-    struct RewarmEntry {
-        size_t index = 0;
-        MmcMemObjMetaPtr memObj = nullptr;
-        MmcMemBlobPtr ssdBlob = nullptr;
-        MmcMemBlobDesc ssdDesc;
-        MmcMemBlobPtr dstBlob = nullptr;
-        MmcMemBlobDesc dstDesc;
-        uint32_t opRankId = 0;
-        uint32_t opSeq = 0;
-
-        RewarmEntry() = default;
-
-        RewarmEntry(size_t idx, MmcMemObjMetaPtr mo, MmcMemBlobPtr sb, const MmcMemBlobDesc &sd, MmcMemBlobPtr db,
-                    const MmcMemBlobDesc &dd, uint32_t rid, uint32_t seq)
-            : index(idx), memObj(mo), ssdBlob(sb), ssdDesc(sd), dstBlob(db), dstDesc(dd), opRankId(rid), opSeq(seq)
-        {}
-    };
-
-    struct DeferredLockEntry {
-        size_t index;
-        MmcMemObjMetaPtr memObj;
-    };
-
-    struct PendingRewarmWait {
-        size_t index;
-        MmcMemObjMetaPtr memObj;
-        MmcMemBlobPtr pendingBlob;
-    };
-
     struct BatchRpcData {
         std::vector<std::string> keys;
         std::vector<MmcMemBlobDesc> srcBlobs;
@@ -482,38 +453,44 @@ private:
         std::vector<size_t> groupIndices;
     };
 
-    struct RewarmCtx {
-        uint32_t opRankId = 0;
-        uint32_t opSeq = 0;
-        MediaType srcMedia = MEDIA_NONE;
-        MediaType dstMedia = MEDIA_NONE;
+    struct RewarmGroupContext {
+        uint32_t opRankId;
+        uint32_t opSeq;
+        const std::vector<std::string> &keys;
+        const std::vector<MmcMemObjMetaPtr> &objs;
+        std::vector<MmcMemMetaDesc> &objMetas;
     };
 
     void ClassifyAndGroupKeys(const std::vector<std::string> &keys, uint32_t opRankId, uint32_t opSeq,
-                              std::vector<MmcMemMetaDesc> &objMetas,
-                              std::map<uint32_t, std::vector<RewarmEntry>> &rankGroups,
-                              std::vector<PendingRewarmWait> &pendingWaitList,
-                              std::vector<DeferredLockEntry> &deferredLockList);
+                              std::vector<MmcMemObjMetaPtr> &objs, std::map<uint32_t, std::vector<size_t>> &rankGroups,
+                              std::vector<size_t> &pendingWaitList, std::vector<size_t> &deferredLockList);
 
-    void RewarmRankGroup(uint32_t rank, std::vector<RewarmEntry> &group, const std::vector<std::string> &keys,
-                         uint32_t opRankId, uint32_t opSeq, std::vector<MmcMemMetaDesc> &objMetas,
+    void PrepareRewarmTask(const std::string &key, size_t index, const MmcMemObjMetaPtr &memObj,
+                           const MmcMemBlobPtr &srcBlob, uint32_t opRankId, uint32_t opSeq,
+                           std::map<uint32_t, std::vector<size_t>> &rankGroups, std::vector<size_t> &deferredLockList);
+
+    void RewarmRankGroup(uint32_t rank, const std::vector<size_t> &indices, const RewarmGroupContext &context,
                          bool attachReadLease = true);
 
     void AttachReadLocks(const std::vector<std::string> &keys, uint32_t opRankId, uint32_t opSeq,
-                         std::vector<MmcMemMetaDesc> &objMetas, std::vector<DeferredLockEntry> &deferredLockList);
+                         const std::vector<MmcMemObjMetaPtr> &objs, std::vector<MmcMemMetaDesc> &objMetas,
+                         std::vector<size_t> &deferredLockList);
 
-    void PendingWaitAndFill(const std::vector<std::string> &keys, uint32_t opRankId, uint32_t opSeq,
-                            std::vector<MmcMemMetaDesc> &objMetas, PendingRewarmWait &w,
+    void PendingWaitAndFill(const std::vector<std::string> &keys, const std::vector<MmcMemObjMetaPtr> &objs,
+                            uint32_t opRankId, uint32_t opSeq, std::vector<MmcMemMetaDesc> &objMetas, size_t index,
                             const std::chrono::steady_clock::time_point &deadline);
 
-    Result SendBatchRpc(uint32_t rank, const std::vector<std::string> &keys, const std::vector<RewarmEntry> &group,
-                        BatchRpcData &batch, size_t groupSize, std::vector<bool> &copyOk);
+    Result SendBatchRpc(uint32_t rank, BatchRpcData &batch, std::vector<bool> &copyOk);
 
-    void RollbackEntry(const std::string &key, const RewarmEntry &entry, MmcMemBlobPtr &dstBlob,
-                       const MmcMemBlobDesc &dstDesc, MediaType dstMedia);
+    void RollbackEntry(const std::string &key, const MmcMemObjMetaPtr &memObj, const MmcMemBlobPtr &srcBlob,
+                       const MmcMemBlobPtr &dstBlob, uint32_t opRankId, uint32_t opSeq);
 
-    Result ApplyRewarm(const std::string &key, RewarmEntry &entry, MmcMemBlobPtr &dstBlob, const RewarmCtx &ctx,
-                       MmcMemMetaDesc &objMeta, bool attachReadLease = true);
+    void RollbackPendingRewarm(const std::string &key, const MmcMemObjMetaPtr &memObj, uint32_t opRankId,
+                               uint32_t opSeq);
+
+    Result ApplyRewarm(const std::string &key, const MmcMemObjMetaPtr &memObj, const MmcMemBlobPtr &srcBlob,
+                       const MmcMemBlobPtr &dstBlob, uint32_t opRankId, uint32_t opSeq, MmcMemMetaDesc &objMeta,
+                       bool attachReadLease = true);
 
 private:
     std::mutex mutex_;

@@ -64,10 +64,6 @@ Result MmcMemBlob::UpdateState(const std::string &key, uint32_t rankId, uint32_t
         }
     }
 
-    if (state_ == READABLE) {
-        NotifyReadable();
-    }
-
     return MMC_OK;
 }
 

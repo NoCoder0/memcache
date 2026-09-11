@@ -119,7 +119,7 @@ TEST_F(TestMmcMetaManager, PendingGetDoesNotDependOnRewarmWorkerAvailability)
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         std::lock_guard<std::mutex> guard(memObj->Mutex());
         pendingBlob->UpdateState(MMC_WRITE_OK);
-        pendingBlob->NotifyReadable();
+        memObj->NotifyReadable();
     });
 
     std::vector<MmcMemMetaDesc> objMetas;
@@ -1201,10 +1201,13 @@ TEST_F(TestMmcMetaManager, BackupReadLeaseReleaseSkipsReusedBlobInOriginalObject
     ASSERT_EQ(MetaContainer(manager)->Insert(key, object), MMC_OK);
     BackupReadLease oldLease;
     ASSERT_EQ(manager->AcquireBackupReadLease(key, original->GetDesc(), oldLease), MMC_OK);
+    std::vector<MmcMemBlobPtr> originalBlobs;
     {
         std::lock_guard<std::mutex> guard(object->Mutex());
-        EXPECT_EQ(object->FreeBlobs(key, GlobalAllocator(manager), nullptr, false).size(), oneBlob);
+        originalBlobs = object->DetachBlobs(nullptr);
     }
+    object->FinalizeBlobs(key, GlobalAllocator(manager), originalBlobs, false);
+    EXPECT_EQ(originalBlobs.size(), oneBlob);
 
     allocated.clear();
     ASSERT_EQ(GlobalAllocator(manager)->Alloc(options, allocated), MMC_OK);
@@ -1249,14 +1252,22 @@ TEST_F(TestMmcMetaManager, BackupReadLeaseReleaseHandlesConcurrentRemoval)
     ASSERT_EQ(MetaContainer(manager)->Insert(key, object), MMC_OK);
     BackupReadLease lease;
     ASSERT_EQ(manager->AcquireBackupReadLease(key, blob->GetDesc(), lease), MMC_OK);
-    std::promise<void> removalLocked;
-    auto removal = std::async(std::launch::async, [object, &removalLocked, &key, &manager] {
-        std::lock_guard<std::mutex> guard(object->Mutex());
-        removalLocked.set_value();
-        return object->FreeBlobs(key, GlobalAllocator(manager), nullptr, false).size();
+    std::promise<void> detachedReady;
+    std::promise<void> releaseReady;
+    auto removal = std::async(std::launch::async, [object, &detachedReady, &releaseReady, &key, &manager] {
+        std::vector<MmcMemBlobPtr> detached;
+        {
+            std::lock_guard<std::mutex> guard(object->Mutex());
+            detached = object->DetachBlobs(nullptr);
+        }
+        detachedReady.set_value();
+        releaseReady.get_future().wait();
+        object->FinalizeBlobs(key, GlobalAllocator(manager), detached, false);
+        return detached.size();
     });
-    removalLocked.get_future().wait();
+    detachedReady.get_future().wait();
     manager->ReleaseBackupReadLease(lease);
+    releaseReady.set_value();
     EXPECT_EQ(removal.get(), oneBlob);
     EXPECT_EQ(blob->State(), REMOVING);
     EXPECT_EQ(GlobalAllocator(manager)->GetFreeSpace(MEDIA_DRAM), size);

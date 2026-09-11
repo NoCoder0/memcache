@@ -64,6 +64,7 @@ void TestBmProxy::TearDown()
     cout << "this is NetEngine TEST_F teardown" << endl;
 
     if (proxy_.Get() != nullptr) {
+        proxy_->SetPostRejoinCallback(nullptr);
         proxy_->DestroyBm();
     }
 }
