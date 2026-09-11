@@ -155,6 +155,8 @@ public:
 
     Result BatchExistKey(const BatchIsExistRequest &req, BatchIsExistResponse &resp);
 
+    Result BatchPromote(const BatchPromoteRequest &req, BatchPromoteResponse &resp);
+
     Result Query(const QueryRequest &req, QueryResponse &resp)
     {
         MmcMetaMetricManager &metricManager = MmcMetaMetricManager::GetInstance();
