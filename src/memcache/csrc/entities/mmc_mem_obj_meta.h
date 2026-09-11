@@ -15,6 +15,7 @@
 #include <vector>
 #include <mutex>
 #include <list>
+#include <string>
 
 #include "mmc_mem_blob.h"
 #include "mmc_meta_lease_manager.h"
@@ -141,6 +142,12 @@ private:
 };
 
 using MmcMemObjMetaPtr = MmcRef<MmcMemObjMeta>;
+
+struct BackupReadLease {
+    std::string key;
+    MmcMemObjMetaPtr object;
+    uint32_t sequence{0};
+};
 
 inline uint16_t MmcMemObjMeta::Prot()
 {
