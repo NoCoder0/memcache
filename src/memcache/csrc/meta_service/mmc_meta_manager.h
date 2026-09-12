@@ -120,7 +120,7 @@ struct MmcMemMetaDesc {
 };
 
 struct MmcMetaExtConfig {
-    bool prefetchEnabled = false;
+    bool prefetchEnabled = true;
     uint64_t pendingWaitTimeoutMs = 300U;
 };
 
