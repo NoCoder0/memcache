@@ -49,7 +49,7 @@ mmc_meta_service_config_t create_default_meta_config()
     config.prefetchEnabled = true;
     config.asyncFlushIntervalMs = static_cast<uint32_t>(ConfConstant::OCK_MMC_ASYNC_FLUSH_INTERVAL_MS.second);
     config.asyncFlushBatchLimit = static_cast<uint32_t>(ConfConstant::OCK_MMC_ASYNC_FLUSH_BATCH_LIMIT.second);
-    config.pendingWaitTimeoutMs = 300U;
+    config.pendingWaitTimeoutMs = 5000U;
     config.leaseTtlMs = MMC_DATA_TTL_MS;
     config.accTlsConfig.tlsEnable = false;
     config.configStoreTlsConfig.tlsEnable = false;

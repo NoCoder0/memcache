@@ -121,7 +121,7 @@ struct MmcMemMetaDesc {
 
 struct MmcMetaExtConfig {
     bool prefetchEnabled = true;
-    uint64_t pendingWaitTimeoutMs = 300U;
+    uint64_t pendingWaitTimeoutMs = 5000U;
 };
 
 class MmcMetaManager : public MmcReferable {
@@ -467,7 +467,7 @@ private:
 
     void PrepareRewarmTask(const std::string &key, size_t index, const MmcMemObjMetaPtr &memObj,
                            const MmcMemBlobPtr &srcBlob, uint32_t opRankId, uint32_t opSeq,
-                           std::map<uint32_t, std::vector<size_t>> &rankGroups, std::vector<size_t> &deferredLockList);
+                           std::map<uint32_t, std::vector<size_t>> &rankGroups);
 
     void RewarmRankGroup(uint32_t rank, const std::vector<size_t> &indices, const RewarmGroupContext &context,
                          bool attachReadLease = true);

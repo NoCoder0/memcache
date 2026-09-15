@@ -159,9 +159,10 @@ static Result WaitPendingRewarm(const std::string &key, const MmcMemObjMetaPtr &
         return classified.upperBlob != nullptr || classified.pendingBlob == nullptr;
     });
     TP_TRACE_END(TP_MMC_META_GET_WAIT_REWARM, waitOk ? MMC_OK : MMC_TIMEOUT);
-    if (!waitOk || classified.upperBlob == nullptr) {
-        MMC_LOG_ERROR("rewarm wait timeout for key " << key);
-        return MMC_TIMEOUT;
+    if (classified.upperBlob == nullptr) {
+        MMC_LOG_WARN("rewarm wait failed for key " << key << ", waitOk=" << waitOk
+                                                   << ", timeoutMs=" << timeout.count());
+        return MMC_ERROR;
     }
 
     if (classified.lowerBlob != nullptr) {
@@ -231,11 +232,7 @@ Result MmcMetaManager::ResolveAndFillMetaDesc(const std::string &key, uint64_t o
     if (selectedBlob == nullptr && classified.pendingBlob != nullptr && lowerBlob != nullptr) {
         auto waitRet = WaitPendingRewarm(key, memObj, filterPtr, classified, guard, extConfig_);
         if (waitRet != MMC_OK) {
-            if (lowerBlob == nullptr) {
-                return waitRet;
-            }
-            selectedBlob = lowerBlob;
-            MmcMetaMetricManager::GetInstance().IncrementGetHitSsdCounter(lowerBlob->GetDesc().rank_);
+            return waitRet;
         } else {
             selectedBlob = classified.upperBlob;
         }
@@ -346,15 +343,11 @@ Result MmcMetaManager::GetByRank(const std::vector<std::string> &keys, uint64_t 
 
 void MmcMetaManager::PrepareRewarmTask(const std::string &key, size_t index, const MmcMemObjMetaPtr &memObj,
                                        const MmcMemBlobPtr &srcBlob, uint32_t opRankId, uint32_t opSeq,
-                                       std::map<uint32_t, std::vector<size_t>> &rankGroups,
-                                       std::vector<size_t> &deferredLockList)
+                                       std::map<uint32_t, std::vector<size_t>> &rankGroups)
 {
-    auto fallbackToSsd = [&]() { deferredLockList.push_back(index); };
-
     auto readRet = srcBlob->UpdateState(key, opRankId, opSeq, MMC_READ_START);
     if (readRet != MMC_OK) {
         MMC_LOG_WARN("key: " << key << " srcBlob READ_START failed (rewarm), ret=" << readRet);
-        fallbackToSsd();
         return;
     }
 
@@ -367,7 +360,6 @@ void MmcMetaManager::PrepareRewarmTask(const std::string &key, size_t index, con
         MMC_LOG_WARN("key: " << key << " rewarm alloc failed, ret=" << allocRet);
         (void)srcBlob->UpdateState(key, opRankId, opSeq, MMC_READ_FINISH);
         MmcMetaMetricManager::GetInstance().IncrementRewarmFailCounter(srcBlob->GetDesc().rank_);
-        fallbackToSsd();
         return;
     }
 
@@ -378,7 +370,6 @@ void MmcMetaManager::PrepareRewarmTask(const std::string &key, size_t index, con
         (void)globalAllocator_->Free(newBlobs);
         (void)srcBlob->UpdateState(key, opRankId, opSeq, MMC_READ_FINISH);
         MmcMetaMetricManager::GetInstance().IncrementRewarmFailCounter(srcBlob->GetDesc().rank_);
-        fallbackToSsd();
         return;
     }
 
@@ -423,7 +414,7 @@ void MmcMetaManager::ClassifyAndGroupKeys(const std::vector<std::string> &keys, 
             if (dstMedia == MEDIA_HBM || dstMedia == MEDIA_NONE) {
                 deferredLockList.push_back(i);
             } else {
-                PrepareRewarmTask(keys[i], i, memObj, lowerBlob, opRankId, opSeq, rankGroups, deferredLockList);
+                PrepareRewarmTask(keys[i], i, memObj, lowerBlob, opRankId, opSeq, rankGroups);
             }
         }
     }
@@ -608,6 +599,7 @@ void MmcMetaManager::PendingWaitAndFill(const std::vector<std::string> &keys, co
     }
 
     std::unique_lock<std::mutex> guard(memObj->Mutex());
+    const auto waitStart = std::chrono::steady_clock::now();
     auto classified = ClassifyBlobs(memObj);
     if (classified.upperBlob == nullptr) {
         const auto now = std::chrono::steady_clock::now();
@@ -627,16 +619,11 @@ void MmcMetaManager::PendingWaitAndFill(const std::vector<std::string> &keys, co
         } else {
             MMC_LOG_WARN("key: " << keys[index] << " pending rewarm READ_START failed, ret=" << readRet);
         }
-    } else if (classified.lowerBlob != nullptr) {
-        auto readRet = classified.lowerBlob->UpdateState(keys[index], opRankId, opSeq, MMC_READ_START);
-        if (readRet == MMC_OK) {
-            objMetas[index].FillFrom(memObj, classified.lowerBlob);
-            MmcMetaMetricManager::GetInstance().IncrementGetHitSsdCounter(classified.lowerBlob->GetDesc().rank_);
-        } else {
-            MMC_LOG_WARN("key: " << keys[index] << " pending rewarm rollback READ_START failed, ret=" << readRet);
-        }
     } else {
-        MMC_LOG_WARN("key: " << keys[index] << " pending rewarm finished without readable blob");
+        const auto elapsedMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - waitStart).count();
+        MMC_LOG_WARN("key: " << keys[index] << " pending rewarm failed or timed out after " << elapsedMs
+                             << "ms; no SSD fallback");
     }
 }
 void MmcMetaManager::RewarmRankGroup(uint32_t rank, const std::vector<size_t> &indices,
