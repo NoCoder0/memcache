@@ -42,7 +42,7 @@ Result MmcMemBlob::UpdateState(const std::string &key, uint32_t rankId, uint32_t
     }
 
     MMC_LOG_DEBUG("update [" << key << "] state from " << state_ << " to " << retIter->second.state_ << ", gva=" << gva_
-                             << ", type=" << mediaType_);
+                             << ", type=" << mediaType_ << ", rankId=" << rankId << ", operateId=" << operateId);
 
     auto oldState = state_;
     state_ = retIter->second.state_;
