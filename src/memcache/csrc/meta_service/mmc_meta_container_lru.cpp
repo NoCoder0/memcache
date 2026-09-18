@@ -13,9 +13,14 @@
 #ifndef MF_HYBRID_MMC_META_CONTAINER_LRU_H
 #define MF_HYBRID_MMC_META_CONTAINER_LRU_H
 
+#include <algorithm>
 #include <list>
 #include <memory>
 #include <unordered_map>
+#include <random>
+#include <vector>
+
+#include "mmc_ptracer.h"
 
 #include "mmc_mem_obj_meta.h"
 #include "mf_rwlock.h"
@@ -208,6 +213,40 @@ public:
         }
         MMC_LOG_ERROR("insert lru: Key " << key << " not found. ErrCode: " << MMC_UNMATCHED_KEY);
         return MMC_UNMATCHED_KEY;
+    }
+
+    void ShuffleLru(MediaType type) override
+    {
+        if (type == MEDIA_NONE || type == MEDIA_SSD) {
+            return;
+        }
+
+        ock::mf::WriteGuard metaLockGuard(metaLock_);
+        ock::mf::WriteGuard lruLockGuard(lruLock_);
+        auto &lruList = lruLists_[type];
+        if (lruList.empty()) {
+            return;
+        }
+
+        std::vector<typename std::list<Key>::iterator> nodes;
+        nodes.reserve(lruList.size());
+        for (auto iter = lruList.begin(); iter != lruList.end(); ++iter) {
+            nodes.emplace_back(iter);
+        }
+        std::shuffle(nodes.begin(), nodes.end(), std::mt19937(std::random_device{}()));
+
+        std::list<Key> shuffledList;
+        for (const auto &node : nodes) {
+            shuffledList.splice(shuffledList.end(), lruList, node);
+        }
+        lruList.swap(shuffledList);
+
+        for (auto iter = lruList.begin(); iter != lruList.end(); ++iter) {
+            auto mapIter = metaMap_.find(*iter);
+            if (mapIter != metaMap_.end()) {
+                mapIter->second.lruIter_ = iter;
+            }
+        }
     }
 
     bool EvictOneLeastRecentlyUsed(std::function<EvictResult(const Key &, const Value &, MediaType)> moveFunc,

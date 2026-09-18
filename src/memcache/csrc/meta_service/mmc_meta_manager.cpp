@@ -1277,6 +1277,9 @@ Result MmcMetaManager::Mount(const MmcLocation &loc, const MmcLocalMemlInitInfo 
         MMC_LOG_TRACE("SSD storage enabled for rank=" << loc.rank_);
     }
     if (blobList.empty()) {
+        TP_TRACE_BEGIN(TP_MMC_META_REBUILD_LRU_SHUFFLE);
+        metaContainer_->ShuffleLru(loc.mediaType_);
+        TP_TRACE_END(TP_MMC_META_REBUILD_LRU_SHUFFLE, MMC_OK);
         ret = globalAllocator_->Start(loc);
         return ret;
     }
