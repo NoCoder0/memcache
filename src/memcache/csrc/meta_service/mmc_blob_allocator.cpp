@@ -156,17 +156,23 @@ Result MmcBlobAllocator::BuildFromBlobs(std::vector<std::pair<std::string, MmcMe
         return MMC_ERROR;
     }
 
+    uint64_t rankMismatch = 0;
+    uint64_t mediaMismatch = 0;
+    uint64_t rebuildFail = 0;
+    uint64_t rebuilt = 0;
     // 处理每个已分配的blob
     for (auto it = blobList.begin(); it != blobList.end();) {
         if (it->second.rank_ != rank_) {
-            MMC_LOG_WARN("rebuild blob not match, allocator rank: " << rank_ << ", blob rank: " << it->second.rank_);
+            MMC_LOG_DEBUG("rebuild blob not match, allocator rank: " << rank_ << ", blob rank: " << it->second.rank_);
+            ++rankMismatch;
             it = blobList.erase(it);
             continue;
         }
 
         if (it->second.mediaType_ != mediaType_) {
-            MMC_LOG_WARN("rebuild blob not match, allocator mediaType: " << mediaType_ << ", blob mediaType: "
-                                                                         << it->second.mediaType_);
+            MMC_LOG_DEBUG("rebuild blob not match, allocator mediaType: " << mediaType_ << ", blob mediaType: "
+                                                                          << it->second.mediaType_);
+            ++mediaMismatch;
             ++it;
             continue;
         }
@@ -176,13 +182,25 @@ Result MmcBlobAllocator::BuildFromBlobs(std::vector<std::pair<std::string, MmcMe
 
         Result res = ValidateAndAddAllocation(offset, size);
         if (res != MMC_OK) {
-            MMC_LOG_ERROR("rebuild allocator failed, rank: " << rank_ << " mediaType: " << mediaType_
-                                                             << ", blob off:" << offset << ", size: " << size);
+            if (rebuildFail == 0) {
+                MMC_LOG_ERROR("rebuild allocator failed, rank: " << rank_ << " mediaType: " << mediaType_
+                                                                 << ", blob off:" << offset << ", size: " << size);
+            } else {
+                MMC_LOG_DEBUG("rebuild allocator failed, rank: " << rank_ << " mediaType: " << mediaType_
+                                                                 << ", blob off:" << offset << ", size: " << size);
+            }
+            ++rebuildFail;
             it = blobList.erase(it);
             continue;
         }
         MMC_LOG_DEBUG("rebuild block successful, rank: " << it->second);
+        ++rebuilt;
         ++it;
+    }
+    if (rankMismatch != 0 || mediaMismatch != 0 || rebuildFail != 0) {
+        MMC_LOG_WARN("rebuild summary, rank: " << rank_ << ", mediaType: " << mediaType_ << ", rebuilt: " << rebuilt
+                                               << ", skipped rankMismatch: " << rankMismatch << ", mediaMismatch: "
+                                               << mediaMismatch << ", rebuildFail: " << rebuildFail);
     }
     spinlock_.unlock();
     return MMC_OK;
