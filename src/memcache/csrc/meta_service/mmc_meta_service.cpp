@@ -12,6 +12,8 @@
 #include "mmc_meta_service.h"
 
 #include <memory>
+#include <cstdlib>
+#include <cstring>
 #include <utility>
 
 #include "mmc_logger.h"
@@ -90,6 +92,11 @@ Result MmcMetaService::Start(const mmc_meta_service_config_t &options)
     metaMgrProxy_ = MmcMakeRef<MmcMetaMgrProxy>(metaNetServer_).Get();
     MmcMetaExtConfig extConfig{};
     extConfig.prefetchEnabled = options.prefetchEnabled;
+    const char *verify = std::getenv("MMC_REMOTE_DRAM_VERIFY_ON_EXISTS");
+    extConfig.remoteVerifyOnExists = verify != nullptr && std::strcmp(verify, "1") == 0;
+#ifdef MMC_REMOTE_DRAM_TCP
+    extConfig.remoteVerifyOnExists = true;
+#endif
     extConfig.pendingWaitTimeoutMs = options_.pendingWaitTimeoutMs;
     MMC_RETURN_ERROR(
         metaMgrProxy_->Start(options_.leaseTtlMs, options.evictThresholdHigh, options.evictThresholdLow, extConfig),
@@ -381,14 +388,15 @@ bool MmcMetaService::IsSsdAvailable(uint32_t rank) const
            metaMgrProxy_->GetMetaManager()->IsSsdAvailable(rank);
 }
 
-void MmcMetaService::OnAsyncFlushComplete(uint32_t rank,
-                                          const std::vector<std::pair<std::string, MmcMemBlobDesc>> &blobs)
+void MmcMetaService::OnAsyncFlushComplete(uint32_t rank, const std::vector<AsyncFlushBlob> &blobs)
 {
     auto &metricMgr = MmcMetaMetricManager::GetInstance();
     if (metaMgrProxy_ != nullptr && metaMgrProxy_->GetMetaManager() != nullptr) {
-        for (const auto &[key, desc] : blobs) {
-            metaMgrProxy_->GetMetaManager()->AddSsdBlob(key, desc);
-            metricMgr.IncrementAsyncFlushBlobAdded(rank, desc.size_);
+        for (const auto &blob : blobs) {
+            if (metaMgrProxy_->GetMetaManager()->AddSsdBlobIfCurrent(blob.key, blob.source, blob.lower,
+                                                                     blob.lease) == MMC_OK) {
+                metricMgr.IncrementAsyncFlushBlobAdded(rank, blob.lower.size_);
+            }
         }
     }
 }

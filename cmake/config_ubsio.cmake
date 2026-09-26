@@ -11,24 +11,48 @@
 ####################################################################
 # ubs-io (SSD backend)
 ####################################################################
+option(MMC_REMOTE_DRAM_TCP "Build against the pinned two-node TCP DRAM backend" OFF)
 message(STATUS "BUILD_UBSIO = ${BUILD_UBSIO}")
+if(MMC_REMOTE_DRAM_TCP AND NOT BUILD_UBSIO)
+    message(FATAL_ERROR "MMC_REMOTE_DRAM_TCP requires BUILD_UBSIO=ON")
+endif()
+if(MMC_REMOTE_DRAM_TCP)
+    add_compile_definitions(MMC_REMOTE_DRAM_TCP=1)
+endif()
 if (BUILD_UBSIO)
     set(UBSIO_OUTPUT_DIR ${PROJECT_OUTPUT_PATH}/3rdparty/ubsio)
 
     # skip if already built
     file(GLOB UBSIO_EXISTING_SO "${UBSIO_OUTPUT_DIR}/lib/*.so*")
-    if (UBSIO_EXISTING_SO)
+    if (UBSIO_EXISTING_SO AND NOT MMC_REMOTE_DRAM_TCP)
         message(STATUS "ubs-io already built, skip (found ${UBSIO_OUTPUT_DIR}/lib/*.so)")
         return()
     endif ()
 
     include(FetchContent)
 
-    set(UBSIO_SRC_DIR "${FETCHCONTENT_BASE_DIR}/ubs-io-src")
-    if (EXISTS "${UBSIO_SRC_DIR}/ubsio-boostio")
+    if(MMC_REMOTE_DRAM_TCP)
+        if(NOT DEFINED ENV{UBSIO_SOURCE_DIR} OR "$ENV{UBSIO_SOURCE_DIR}" STREQUAL "" OR
+           NOT DEFINED ENV{UBSIO_HCOM_SOURCE_DIR} OR "$ENV{UBSIO_HCOM_SOURCE_DIR}" STREQUAL "")
+            message(FATAL_ERROR "Set UBSIO_SOURCE_DIR and UBSIO_HCOM_SOURCE_DIR for pinned TCP build")
+        endif()
+        set(UBSIO_SRC_DIR "$ENV{UBSIO_SOURCE_DIR}")
+        execute_process(COMMAND git -C "${UBSIO_SRC_DIR}" rev-parse HEAD
+                        OUTPUT_VARIABLE UBSIO_SOURCE_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE
+                        RESULT_VARIABLE UBSIO_SOURCE_RESULT)
+        if(NOT UBSIO_SOURCE_RESULT EQUAL 0 OR
+           NOT UBSIO_SOURCE_COMMIT STREQUAL "42858407737bc4c322f5f39633935529b41bac19")
+            message(FATAL_ERROR "UBS-IO source must be 42858407737bc4c322f5f39633935529b41bac19")
+        endif()
+        set(ENV{UBSIO_HCOM_ENABLE_RDMA} OFF)
+        FetchContent_Declare(ubs-io SOURCE_DIR "${UBSIO_SRC_DIR}")
+    else()
+        set(UBSIO_SRC_DIR "${FETCHCONTENT_BASE_DIR}/ubs-io-src")
+    endif()
+    if (NOT MMC_REMOTE_DRAM_TCP AND EXISTS "${UBSIO_SRC_DIR}/ubsio-boostio")
         message(STATUS "ubs-io local source found at ${UBSIO_SRC_DIR}, skip clone")
         FetchContent_Declare(ubs-io SOURCE_DIR ${UBSIO_SRC_DIR})
-    else()
+    elseif(NOT MMC_REMOTE_DRAM_TCP)
         FetchContent_Declare(
             ubs-io
             GIT_REPOSITORY https://gitcode.com/openeuler/ubs-io.git
@@ -45,7 +69,7 @@ if (BUILD_UBSIO)
 
     message(STATUS "Building ubs-io boostio...")
     execute_process(
-        COMMAND bash ${ubs-io_SOURCE_DIR}/ubsio-boostio/build.sh -t release --cli --pkg
+        COMMAND bash ${ubs-io_SOURCE_DIR}/ubsio-boostio/build.sh -t release --cli --build_kv ON --build_kv_python OFF --pkg
         WORKING_DIRECTORY ${ubs-io_SOURCE_DIR}/ubsio-boostio
         RESULT_VARIABLE UBSIO_BOOSTIO_RESULT
     )
@@ -60,6 +84,11 @@ if (BUILD_UBSIO)
     file(GLOB UBSIO_SO_FILES
         ${ubs-io_SOURCE_DIR}/ubsio-boostio/dist/lib/*.so*
         ${ubs-io_SOURCE_DIR}/ubsio-boostio/dist/test_tools/lib/*.so*)
+    if (MMC_REMOTE_DRAM_TCP AND
+        (NOT EXISTS "${ubs-io_SOURCE_DIR}/ubsio-boostio/dist/lib/libbio_sdk.so.1" OR
+         NOT EXISTS "${ubs-io_SOURCE_DIR}/ubsio-boostio/dist/lib/libubsio_kvc.so.1"))
+        message(FATAL_ERROR "Pinned TCP build must package libbio_sdk.so.1 and libubsio_kvc.so.1")
+    endif()
     file(COPY ${UBSIO_SO_FILES} DESTINATION ${UBSIO_OUTPUT_DIR}/lib)
     message(STATUS "ubs-io lib installed to ${UBSIO_OUTPUT_DIR}/lib")
 

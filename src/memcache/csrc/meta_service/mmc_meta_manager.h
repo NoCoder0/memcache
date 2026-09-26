@@ -121,6 +121,7 @@ struct MmcMemMetaDesc {
 
 struct MmcMetaExtConfig {
     bool prefetchEnabled = true;
+    bool remoteVerifyOnExists = false;
     uint64_t pendingWaitTimeoutMs = 5000U;
 };
 
@@ -212,7 +213,8 @@ public:
      * @param operateId    [in] operate id
      * @param objMetas     [out] meta descriptors per key
      */
-    Result GetByRank(const std::vector<std::string> &keys, uint64_t operateId, std::vector<MmcMemMetaDesc> &objMetas);
+    Result GetByRank(const std::vector<std::string> &keys, uint64_t operateId, std::vector<MmcMemMetaDesc> &objMetas,
+                     bool attachReadLease = true);
 
     /**
      * @brief Update the state
@@ -394,7 +396,8 @@ public:
 
     // UBS IO metadata event handlers
     Result RemoveSsdBlob(const std::string &key, uint32_t rank);
-    Result AddSsdBlob(const std::string &key, const MmcMemBlobDesc &desc);
+    Result AddSsdBlobIfCurrent(const std::string &key, const MmcMemBlobDesc &source,
+                               const MmcMemBlobDesc &lower, const BackupReadLease &lease);
 
     // On success, record the original object and lease ID for ReleaseBackupReadLease.
     Result AcquireBackupReadLease(const std::string &key, const MmcMemBlobDesc &source, BackupReadLease &lease);
@@ -473,14 +476,17 @@ private:
                          bool attachReadLease = true);
 
     void AttachReadLocks(const std::vector<std::string> &keys, uint32_t opRankId, uint32_t opSeq,
-                         const std::vector<MmcMemObjMetaPtr> &objs, std::vector<MmcMemMetaDesc> &objMetas,
-                         std::vector<size_t> &deferredLockList);
+                          const std::vector<MmcMemObjMetaPtr> &objs, std::vector<MmcMemMetaDesc> &objMetas,
+                          std::vector<size_t> &deferredLockList, bool attachReadLease);
 
     void PendingWaitAndFill(const std::vector<std::string> &keys, const std::vector<MmcMemObjMetaPtr> &objs,
-                            uint32_t opRankId, uint32_t opSeq, std::vector<MmcMemMetaDesc> &objMetas, size_t index,
-                            const std::chrono::steady_clock::time_point &deadline);
+                             uint32_t opRankId, uint32_t opSeq, std::vector<MmcMemMetaDesc> &objMetas, size_t index,
+                             const std::chrono::steady_clock::time_point &deadline, bool attachReadLease);
 
-    Result SendBatchRpc(uint32_t rank, BatchRpcData &batch, std::vector<bool> &copyOk);
+    Result SendBatchRpc(uint32_t rank, BatchRpcData &batch, std::vector<Result> &copyResults);
+
+    void InvalidateInvalidLower(const std::string &key, const MmcMemObjMetaPtr &obj,
+                                const MmcMemBlobPtr &source);
 
     void RollbackEntry(const std::string &key, const MmcMemObjMetaPtr &memObj, const MmcMemBlobPtr &srcBlob,
                        const MmcMemBlobPtr &dstBlob, uint32_t opRankId, uint32_t opSeq);

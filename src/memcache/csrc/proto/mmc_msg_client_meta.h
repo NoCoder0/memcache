@@ -624,6 +624,7 @@ struct MetaReplicateRequest : public MsgBase {
     std::vector<uint32_t> ops_;
     std::vector<std::string> keys_;
     std::vector<MmcMemBlobDesc> blobs_; /* pointers of blobs */
+    std::vector<uint64_t> lowerGenerations_; // msgVer=1: immutable remote backup addresses
 
     MetaReplicateRequest() : MsgBase{0, LM_META_REPLICATE_REQ, 0} {}
     MetaReplicateRequest(const std::vector<uint32_t> &ops, const std::vector<std::string> &keys,
@@ -639,6 +640,7 @@ struct MetaReplicateRequest : public MsgBase {
         packer.Serialize(ops_);
         packer.Serialize(keys_);
         packer.Serialize(blobs_);
+        if (msgVer == 1) packer.Serialize(lowerGenerations_);
         return MMC_OK;
     }
 
@@ -650,6 +652,11 @@ struct MetaReplicateRequest : public MsgBase {
         packer.Deserialize(ops_);
         packer.Deserialize(keys_);
         packer.Deserialize(blobs_);
+        lowerGenerations_.clear();
+        if (msgVer == 1) packer.Deserialize(lowerGenerations_);
+        if (msgVer > 1 || (msgVer == 1 && lowerGenerations_.size() != keys_.size())) {
+            return MMC_INVALID_PARAM;
+        }
         return MMC_OK;
     }
 

@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <cstring>
 #include <sys/stat.h>
 
 #include "mmc_meta_net_client.h"
@@ -20,6 +22,7 @@
 #include "mmc_functions.h"
 #include "mmc_configuration.h"
 #include "mmc_local_service_default.h"
+#include "mmc_remote_dram.h"
 
 namespace ock {
 namespace mmc {
@@ -102,7 +105,7 @@ Result MmcLocalServiceDefault::Start(const mmc_local_service_config_t &config)
     metaNetClient_->RegisterRetryHandler(
         std::bind(&MmcLocalServiceDefault::RegisterBm, this),
         std::bind(&MmcLocalServiceDefault::UpdateMetaBackup, this, std::placeholders::_1, std::placeholders::_2,
-                  std::placeholders::_3, std::placeholders::_4),
+                  std::placeholders::_3, std::placeholders::_4, std::placeholders::_5),
         std::bind(&MmcLocalServiceDefault::CopyBlob, this, std::placeholders::_1, std::placeholders::_2,
                   std::placeholders::_3),
         std::bind(&MmcLocalServiceDefault::BlobDelete, this, std::placeholders::_1, std::placeholders::_2),
@@ -268,6 +271,13 @@ Result MmcLocalServiceDefault::RegisterBm()
 
     Response resp;
     std::unique_lock<std::mutex> lockGuard(blobMutex_);
+    if (RemoteDramEnabled()) {
+        for (auto entry = blobMap_.begin(); entry != blobMap_.end();) {
+            DropRemoteRecoveryDescriptors(entry->second, MEDIA_SSD);
+            if (entry->second.empty()) entry = blobMap_.erase(entry);
+            else ++entry;
+        }
+    }
     auto it = blobMap_.begin();
     const auto end = blobMap_.end();
     std::vector<std::string> queryKeys;
@@ -281,11 +291,12 @@ Result MmcLocalServiceDefault::RegisterBm()
             ++batchEnd;
         }
         std::array<bool, kSsdRebuildQueryBatchSize> exists{};
-        if (ubsIoProxyPtr_ != nullptr) {
+        if (ubsIoProxyPtr_ != nullptr && !RemoteDramEnabled()) {
             // Query all keys, including DRAM/HBM-only entries that may need an SSD descriptor restored.
             Result ret = ubsIoProxyPtr_->BatchExist(queryKeys, exists.data());
             if (ret != MMC_OK) {
-                // Drop SSD recovery metadata for the failed batch, including any partial hits, and keep scanning.
+                // Remote DRAM mode skips this SSD existence path above. Preserve best-effort
+                // recovery behavior here when the process is running in the legacy mode.
                 exists.fill(false);
                 MMC_LOG_WARN("SSD rebuild BatchExist failed, treating batch as missing, rank="
                              << req.rank_ << ", keyCount=" << queryKeys.size() << ", ret=" << ret);
@@ -295,7 +306,8 @@ Result MmcLocalServiceDefault::RegisterBm()
         size_t removedCount = 0;
         for (size_t index = 0; it != batchEnd; ++index) {
             auto &descs = it->second;
-            removedCount += AppendRebuildBlobs(it->first, descs, ubsIoProxyPtr_ != nullptr, exists[index], req);
+            removedCount += AppendRebuildBlobs(it->first, descs,
+                                               ubsIoProxyPtr_ != nullptr && !RemoteDramEnabled(), exists[index], req);
             if (descs.empty()) {
                 it = blobMap_.erase(it);
             } else {
@@ -350,7 +362,8 @@ Result MmcLocalServiceDefault::InitUbsIo(int32_t deviceId, const std::string &co
 
 Result MmcLocalServiceDefault::UpdateMetaBackup(const std::vector<uint32_t> &ops, const std::vector<std::string> &keys,
                                                 const std::vector<MmcMemBlobDesc> &blobs,
-                                                std::vector<Result> &keyResults)
+                                                std::vector<Result> &keyResults,
+                                                const std::vector<uint64_t> &lowerGenerations)
 {
     const auto opCount = ops.size();
     const auto keyCount = keys.size();
@@ -361,11 +374,20 @@ Result MmcLocalServiceDefault::UpdateMetaBackup(const std::vector<uint32_t> &ops
                                                                                 << ", blobSize=" << blobCount);
         return MMC_INVALID_PARAM;
     }
+    if (RemoteDramEnabled()) {
+        if (lowerGenerations.size() != keyCount) return MMC_INVALID_PARAM;
+        for (size_t i = 0; i < keyCount; ++i) {
+            if (ops[i] == META_BACKUP_ADD && blobs[i].mediaType_ == MEDIA_DRAM &&
+                (lowerGenerations[i] == 0 || lowerGenerations[i] == UINT64_MAX)) return MMC_INVALID_PARAM;
+        }
+    } else if (!lowerGenerations.empty()) {
+        return MMC_INVALID_PARAM; // Fail closed on incompatible peer modes.
+    }
 
     std::vector<size_t> flushTasks = ProcessBackupMetadata(ops, keys, blobs, length, keyResults);
     MMC_LOG_DEBUG("ProcessBackupMetadata done, flushTasks=" << flushTasks.size());
 
-    BatchFlushToSsd(flushTasks, keys, blobs, keyResults);
+    BatchFlushToSsd(flushTasks, keys, blobs, keyResults, lowerGenerations);
 
     MMC_LOG_DEBUG("Handle " << length << " metas backup");
     return MMC_OK;
@@ -389,23 +411,7 @@ static bool AddDesc(std::vector<MmcMemBlobDesc> &descs, const MmcMemBlobDesc &bl
 static bool EraseDesc(std::map<std::string, std::vector<MmcMemBlobDesc>> &blobMap, const std::string &key,
                       const MmcMemBlobDesc &blob)
 {
-    auto it = blobMap.find(key);
-    if (it == blobMap.end()) {
-        MMC_LOG_WARN("backup remove key not found in blobMap, key=" << key);
-        return false;
-    }
-    auto &descs = it->second;
-    for (auto dit = descs.begin(); dit != descs.end(); ++dit) {
-        if (*dit == blob) {
-            descs.erase(dit);
-            if (descs.empty()) {
-                blobMap.erase(it);
-            }
-            return true;
-        }
-    }
-    MMC_LOG_WARN("backup remove blob desc mismatch in blobMap, key=" << key << ", blob=" << blob);
-    return false;
+    return EraseExactBackup(blobMap, key, blob);
 }
 
 std::vector<size_t> MmcLocalServiceDefault::ProcessBackupMetadata(const std::vector<uint32_t> &ops,
@@ -454,7 +460,8 @@ std::vector<size_t> MmcLocalServiceDefault::ProcessBackupMetadata(const std::vec
 void MmcLocalServiceDefault::CollectFlushParams(const std::vector<size_t> &indices,
                                                 const std::vector<std::string> &keys,
                                                 const std::vector<MmcMemBlobDesc> &blobs,
-                                                std::vector<Result> &keyResults, BatchIoParams &out)
+                                                std::vector<Result> &keyResults, BatchIoParams &out,
+                                                const std::vector<uint64_t> &lowerGenerations)
 {
     for (size_t idx : indices) {
         uint64_t srcVa = 0;
@@ -466,7 +473,12 @@ void MmcLocalServiceDefault::CollectFlushParams(const std::vector<size_t> &indic
             keyResults[idx] = gvaRet;
             continue;
         }
-        out.keys.push_back(keys[idx]);
+        auto lower = blobs[idx];
+        lower.mediaType_ = MEDIA_SSD;
+        lower.gva_ = RemoteDramEnabled() ? lowerGenerations[idx] : 0;
+        out.keys.push_back(LowerStorageKey(keys[idx], lower));
+        out.logicalKeys.push_back(keys[idx]);
+        out.lowerDescs.push_back(lower);
         out.vas.push_back(reinterpret_cast<void *>(srcVa));
         out.sizes.push_back(blobs[idx].size_);
         out.validIdx.push_back(idx);
@@ -483,15 +495,16 @@ size_t MmcLocalServiceDefault::ExecuteFlushBatch(BatchIoParams &params, const st
 
     size_t successCnt = 0;
     for (size_t i = 0; i < params.keys.size(); ++i) {
-        if (batchRet == MMC_OK && batchResults[i] == 0) {
-            MmcMemBlobDesc ssdDesc = blobs[params.validIdx[i]];
-            ssdDesc.mediaType_ = MEDIA_SSD;
-            ssdDesc.gva_ = 0;
+        if (batchResults[i] == MMC_OK) {
+            const auto &ssdDesc = params.lowerDescs[i];
             // 刷盘成功并写入 blobMap 后才返回成功，保证 keyResults 反映完整结果
             {
                 std::lock_guard<std::mutex> guard(blobMutex_);
-                auto &descs = blobMap_[params.keys[i]];
-                if (AddDesc(descs, ssdDesc)) {
+                auto entry = blobMap_.find(params.logicalKeys[i]);
+                const auto &source = blobs[params.validIdx[i]];
+                if (entry != blobMap_.end() &&
+                    std::find(entry->second.begin(), entry->second.end(), source) != entry->second.end() &&
+                    AddDesc(entry->second, ssdDesc)) {
                     keyResults[params.validIdx[i]] = MMC_OK;
                     ++successCnt;
                 } else {
@@ -502,18 +515,23 @@ size_t MmcLocalServiceDefault::ExecuteFlushBatch(BatchIoParams &params, const st
         } else {
             MMC_LOG_WARN("Failed to flush blob to SSD, key=" << params.keys[i] << ", batchRet=" << batchRet
                                                              << ", result=" << batchResults[i]);
-            // UBS 返回码与 MMC 错误码不是一个体系，统一映射为 MMC_ERROR，具体码留在日志中
-            keyResults[params.validIdx[i]] = MMC_ERROR;
+            keyResults[params.validIdx[i]] = batchResults[i] != MMC_ERROR ? batchResults[i] :
+                                               (batchRet != MMC_OK ? batchRet : MMC_ERROR);
+        }
+        if (RemoteDramEnabled() && keyResults[params.validIdx[i]] != MMC_OK) {
+            // The physical address belongs only to this attempt; cleanup cannot delete a successor.
+            ubsIoProxyPtr_->Delete(params.keys[i]);
         }
     }
     return successCnt;
 }
 
 void MmcLocalServiceDefault::BatchFlushToSsd(const std::vector<size_t> &indices, const std::vector<std::string> &keys,
-                                             const std::vector<MmcMemBlobDesc> &blobs, std::vector<Result> &keyResults)
+                                             const std::vector<MmcMemBlobDesc> &blobs, std::vector<Result> &keyResults,
+                                             const std::vector<uint64_t> &lowerGenerations)
 {
     BatchIoParams params;
-    CollectFlushParams(indices, keys, blobs, keyResults, params);
+    CollectFlushParams(indices, keys, blobs, keyResults, params, lowerGenerations);
     if (params.keys.empty()) {
         if (!indices.empty()) {
             MMC_LOG_WARN("BatchFlushToSsd all GvaToVa failed, count=" << indices.size());
@@ -565,7 +583,13 @@ Result MmcLocalServiceDefault::BlobDelete(const std::string &key, const MmcMemBl
         return MMC_ERROR;
     }
 
-    Result ret = ubsIoProxyPtr_->Delete(key);
+    {
+        std::lock_guard<std::mutex> guard(blobMutex_);
+        EraseDesc(blobMap_, key, blob);
+    }
+    if (RemoteDramEnabled() && blob.gva_ == 0) return MMC_UNMATCHED_KEY;
+    Result ret = ubsIoProxyPtr_->Delete(LowerStorageKey(key, blob));
+    if (ret == MMC_UNMATCHED_KEY) return MMC_OK;
     if (ret != MMC_OK) {
         MMC_LOG_ERROR("ubsIo delete failed:" << ret << ", key=" << key << ", rank=" << blob.rank_);
         return ret;
@@ -648,6 +672,11 @@ void MmcLocalServiceDefault::CollectBatchIoParams(const std::vector<std::string>
     }
     if (srcIsSsd) {
         for (size_t i = 0; i < count; ++i) {
+            if (srcBlobs[i].mediaType_ != MEDIA_SSD || dstBlobs[i].mediaType_ == MEDIA_SSD ||
+                (RemoteDramEnabled() && srcBlobs[i].gva_ == 0)) {
+                results[i] = MMC_UNMATCHED_KEY;
+                continue;
+            }
             if (srcBlobs[i].size_ > dstBlobs[i].size_) {
                 MMC_LOG_ERROR("src size " << srcBlobs[i].size_ << " exceeds dst size " << dstBlobs[i].size_
                                           << " in batch copy, key=" << keys[i]);
@@ -662,13 +691,20 @@ void MmcLocalServiceDefault::CollectBatchIoParams(const std::vector<std::string>
                 results[i] = gvaRet;
                 continue;
             }
-            out.keys.push_back(keys[i]);
+            out.keys.push_back(LowerStorageKey(keys[i], srcBlobs[i]));
+            out.logicalKeys.push_back(keys[i]);
+            out.lowerDescs.push_back(srcBlobs[i]);
             out.vas.push_back(reinterpret_cast<void *>(dstVa));
             out.sizes.push_back(srcBlobs[i].size_);
             out.validIdx.push_back(i);
         }
     } else {
         for (size_t i = 0; i < count; ++i) {
+            if (RemoteDramEnabled()) {
+                // Remote publication is only supported via versioned async backup.
+                results[i] = MMC_INVALID_PARAM;
+                continue;
+            }
             if (srcBlobs[i].gva_ == 0 || srcBlobs[i].size_ == 0) {
                 MMC_LOG_ERROR("invalid src gva=" << srcBlobs[i].gva_ << " or size=" << srcBlobs[i].size_
                                                  << " in batch copy, key=" << keys[i]);
@@ -713,10 +749,20 @@ void MmcLocalServiceDefault::ExecuteBatchIo(BatchIoParams &params, bool srcIsSsd
             MMC_LOG_ERROR("validIdx out of range, idx=" << params.validIdx[j] << ", results.size=" << results.size());
             continue;
         }
-        if (batchRet == MMC_OK && batchResults[j] == 0) {
+        if (batchResults[j] == MMC_OK) {
             results[params.validIdx[j]] = MMC_OK;
             MMC_LOG_DEBUG("batch copy ok, key=" << params.keys[j] << ", size=" << params.sizes[j]);
         } else {
+            results[params.validIdx[j]] = batchResults[j] != MMC_ERROR ? batchResults[j] :
+                                           (batchRet != MMC_OK ? batchRet : MMC_ERROR);
+            if (srcIsSsd && (results[params.validIdx[j]] == MMC_UNMATCHED_KEY ||
+                             results[params.validIdx[j]] == MMC_STORAGE_CORRUPT)) {
+                {
+                    std::lock_guard<std::mutex> guard(blobMutex_);
+                    EraseDesc(blobMap_, params.logicalKeys[j], params.lowerDescs[j]);
+                }
+                if (RemoteDramEnabled()) ubsIoProxyPtr_->Delete(params.keys[j]);
+            }
             MMC_LOG_ERROR("batch copy failed, key=" << params.keys[j] << " batchRet: " << batchRet
                                                     << " indexRet: " << batchResults[j]);
         }
@@ -748,6 +794,9 @@ size_t MmcLocalServiceDefault::RemoveLocalSsdBackups(const std::vector<std::stri
 
 void MmcLocalServiceDefault::HandleUbsIoMetaEvents(int type, const std::vector<std::string> &keys)
 {
+    // TCP KVC owns physical chunk names. A key-only event cannot identify a logical generation.
+    // Remote-only Exists/Get performs validated read-through and exact descriptor cleanup instead.
+    if (RemoteDramEnabled()) return;
     if (keys.empty()) {
         return;
     }

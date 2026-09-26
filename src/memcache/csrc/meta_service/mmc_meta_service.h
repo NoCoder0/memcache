@@ -24,6 +24,7 @@
 #include "mmc_global_allocator.h"
 #include "mmc_meta_net_server.h"
 #include "mmc_meta_mgr_proxy.h"
+#include "mmc_meta_backup_mgr_default.h"
 #include "mmc_periodic_task.h"
 #include "smem_config_store.h"
 #include "kv_event/mmc_kv_event_runtime.h"
@@ -87,7 +88,7 @@ private:
 
     void StartMetricsReportTask();
     bool IsSsdAvailable(uint32_t rank) const;
-    void OnAsyncFlushComplete(uint32_t rank, const std::vector<std::pair<std::string, MmcMemBlobDesc>> &blobs);
+    void OnAsyncFlushComplete(uint32_t rank, const std::vector<AsyncFlushBlob> &blobs);
 };
 inline const std::string &MmcMetaService::Name() const
 {

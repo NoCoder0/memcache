@@ -25,6 +25,10 @@ public:
     virtual ~MmcMetaContainer() = default;
     virtual Result Insert(const Key &key, const Value &value) = 0;
     virtual Result Get(const Key &key, Value &value) = 0;
+    virtual Result WithCurrent(const Key &key, const Value &expected,
+                               const std::function<Result(const Value &)> &action) = 0;
+    virtual bool EraseIfCurrent(const Key &key, const Value &expected,
+                                const std::function<bool(const Value &)> &predicate) = 0;
     virtual Result Erase(const Key &key) = 0;
     virtual Result Erase(const Key &key, Value &value) = 0;
     virtual Result EraseAll(std::function<void(const Key &, const Value &)> removeFunc) = 0;

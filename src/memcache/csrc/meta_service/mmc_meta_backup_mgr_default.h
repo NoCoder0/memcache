@@ -43,6 +43,13 @@ struct MetaBackUpOperate {
     MetaBackUpOperate(uint32_t op, const std::string &key, MmcMemBlobDesc &desc) : op_(op), key_(key), desc_(desc) {}
 };
 
+struct AsyncFlushBlob {
+    std::string key;
+    MmcMemBlobDesc source;
+    MmcMemBlobDesc lower;
+    BackupReadLease lease;
+};
+
 struct MMCMetaBackUpConfDefault : public MMCMetaBackUpConf {
     MetaNetServerPtr serverPtr_;
     uint32_t asyncFlushIntervalMs = 0;
@@ -50,13 +57,13 @@ struct MMCMetaBackUpConfDefault : public MMCMetaBackUpConf {
     std::function<bool(uint32_t)> isSsdAvailableFunc_;
     std::function<Result(const std::string &, const MmcMemBlobDesc &, BackupReadLease &)> acquireReadLease;
     std::function<void(const BackupReadLease &)> releaseReadLease;
-    std::function<void(uint32_t, const std::vector<std::pair<std::string, MmcMemBlobDesc>> &)> onAsyncFlushComplete_;
+    std::function<void(uint32_t, const std::vector<AsyncFlushBlob> &)> onAsyncFlushComplete_;
 
     explicit MMCMetaBackUpConfDefault(MetaNetServerPtr serverPtr) : serverPtr_(serverPtr) {}
 
     void Setup(
         uint32_t intervalMs, uint32_t batchLimit, std::function<bool(uint32_t)> isSsdAvailableFunc,
-        std::function<void(uint32_t, const std::vector<std::pair<std::string, MmcMemBlobDesc>> &)> onAsyncFlushComplete)
+        std::function<void(uint32_t, const std::vector<AsyncFlushBlob> &)> onAsyncFlushComplete)
     {
         asyncFlushIntervalMs = intervalMs;
         asyncFlushBatchLimit = batchLimit;
@@ -185,7 +192,7 @@ private:
     std::function<bool(uint32_t)> isSsdAvailableFunc_;
     std::function<Result(const std::string &, const MmcMemBlobDesc &, BackupReadLease &)> acquireReadLease_;
     std::function<void(const BackupReadLease &)> releaseReadLease_;
-    std::function<void(uint32_t, const std::vector<std::pair<std::string, MmcMemBlobDesc>> &)> onAsyncFlushComplete_;
+    std::function<void(uint32_t, const std::vector<AsyncFlushBlob> &)> onAsyncFlushComplete_;
 };
 } // namespace mmc
 } // namespace ock

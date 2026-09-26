@@ -197,10 +197,14 @@ Result MetaNetClient::HandleMetaReplicate(const NetContextPtr &context)
     auto handleReplicate = [this](const NetContextPtr &ctx) {
         MetaReplicateRequest req;
         Response resp;
-        ctx->GetRequest<MetaReplicateRequest>(req);
+        if (ctx->GetRequest<MetaReplicateRequest>(req) != MMC_OK) {
+            resp.ret_ = MMC_INVALID_PARAM;
+            return ctx->Reply(req.msgId, resp);
+        }
         if (replicateHandler_ != nullptr) {
             std::vector<Result> keyResults;
-            resp.ret_ = replicateHandler_(req.ops_, req.keys_, req.blobs_, keyResults);
+            resp.msgVer = req.msgVer;
+            resp.ret_ = replicateHandler_(req.ops_, req.keys_, req.blobs_, keyResults, req.lowerGenerations_);
             resp.keyResults_ = std::move(keyResults);
         } else {
             MMC_LOG_DEBUG("replicateHandler_ is nullptr");

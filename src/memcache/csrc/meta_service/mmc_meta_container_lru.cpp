@@ -90,6 +90,31 @@ public:
         return MMC_UNMATCHED_KEY;
     }
 
+    Result WithCurrent(const Key &key, const Value &expected,
+                       const std::function<Result(const Value &)> &action) override
+    {
+        ock::mf::ReadGuard lockGuard(metaLock_);
+        auto iter = metaMap_.find(key);
+        if (iter == metaMap_.end() || iter->second.value_ != expected) return MMC_UNMATCHED_KEY;
+        return action(iter->second.value_);
+    }
+
+    bool EraseIfCurrent(const Key &key, const Value &expected,
+                        const std::function<bool(const Value &)> &predicate) override
+    {
+        ock::mf::WriteGuard lockGuard(metaLock_);
+        auto iter = metaMap_.find(key);
+        if (iter == metaMap_.end() || iter->second.value_ != expected || !predicate(iter->second.value_)) {
+            return false;
+        }
+        if (iter->second.mediaType_ != MEDIA_NONE) {
+            ock::mf::WriteGuard lruGuard(lruLock_);
+            lruLists_[iter->second.mediaType_].erase(iter->second.lruIter_);
+        }
+        metaMap_.erase(iter);
+        return true;
+    }
+
     Result Erase(const Key &key) override
     {
         Value value;

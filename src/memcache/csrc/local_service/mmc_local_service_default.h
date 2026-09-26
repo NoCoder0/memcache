@@ -51,7 +51,8 @@ public:
     Result DestroyBm();
 
     Result UpdateMetaBackup(const std::vector<uint32_t> &ops, const std::vector<std::string> &keys,
-                            const std::vector<MmcMemBlobDesc> &blobs, std::vector<Result> &keyResults);
+                            const std::vector<MmcMemBlobDesc> &blobs, std::vector<Result> &keyResults,
+                            const std::vector<uint64_t> &lowerGenerations = {});
 
     Result CopyBlob(const std::string &key, const MmcMemBlobDesc &src, const MmcMemBlobDesc &dst);
 
@@ -75,6 +76,8 @@ public:
 private:
     struct BatchIoParams {
         std::vector<std::string> keys;
+        std::vector<std::string> logicalKeys;
+        std::vector<MmcMemBlobDesc> lowerDescs;
         std::vector<void *> vas;
         std::vector<size_t> sizes;
         std::vector<size_t> validIdx;
@@ -96,13 +99,14 @@ private:
 
     void CollectFlushParams(const std::vector<size_t> &indices, const std::vector<std::string> &keys,
                             const std::vector<MmcMemBlobDesc> &blobs, std::vector<Result> &keyResults,
-                            BatchIoParams &out);
+                            BatchIoParams &out, const std::vector<uint64_t> &lowerGenerations);
 
     size_t ExecuteFlushBatch(BatchIoParams &params, const std::vector<MmcMemBlobDesc> &blobs,
                              std::vector<Result> &keyResults);
 
     void BatchFlushToSsd(const std::vector<size_t> &indices, const std::vector<std::string> &keys,
-                         const std::vector<MmcMemBlobDesc> &blobs, std::vector<Result> &keyResults);
+                         const std::vector<MmcMemBlobDesc> &blobs, std::vector<Result> &keyResults,
+                         const std::vector<uint64_t> &lowerGenerations);
 
     MetaNetClientPtr metaNetClient_;
     MmcBmProxyPtr bmProxyPtr_;

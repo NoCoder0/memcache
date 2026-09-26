@@ -49,6 +49,7 @@ public:
      * @param blob         [in] blob pointer to be added
      */
     Result AddBlob(const MmcMemBlobPtr &blob);
+    bool DetachBlob(const MmcMemBlobPtr &blob);
 
     /**
      * @brief Detach blobs from blobs_ list by filter (caller must hold Mutex)

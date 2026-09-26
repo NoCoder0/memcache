@@ -281,7 +281,7 @@ Result MmcMetaManager::ResolveAndFillMetaDesc(const std::string &key, uint64_t o
 }
 
 Result MmcMetaManager::GetByRank(const std::vector<std::string> &keys, uint64_t operateId,
-                                 std::vector<MmcMemMetaDesc> &objMetas)
+                                 std::vector<MmcMemMetaDesc> &objMetas, bool attachReadLease)
 {
     size_t keyCount = keys.size();
     objMetas.resize(keyCount);
@@ -309,7 +309,9 @@ Result MmcMetaManager::GetByRank(const std::vector<std::string> &keys, uint64_t 
     for (auto &[rank, group] : rankGroups) {
         RewarmGroupContext context{opRankId, opSeq, keys, objs, objMetas};
         auto future =
-            rewarmThreadPool_->Enqueue([this, rank, &group, context]() { RewarmRankGroup(rank, group, context); });
+            rewarmThreadPool_->Enqueue([this, rank, &group, context, attachReadLease]() {
+                RewarmRankGroup(rank, group, context, attachReadLease);
+            });
         if (!future.valid()) {
             MMC_LOG_ERROR("submit rewarm task failed, rollback pending entries, rank=" << rank);
             for (auto index : group) {
@@ -320,14 +322,14 @@ Result MmcMetaManager::GetByRank(const std::vector<std::string> &keys, uint64_t 
         rewarmFutures.emplace_back(std::move(future));
     }
 
-    AttachReadLocks(keys, opRankId, opSeq, objs, objMetas, deferredLockList);
+    AttachReadLocks(keys, opRankId, opSeq, objs, objMetas, deferredLockList, attachReadLease);
 
     // pending key 在当前请求线程内等待，并共享同一个截止时间。这样既不会占用回温 worker，
     // 也不会让包含多个 pending key 的 BatchGet 把 300ms 超时逐 key 串行累加。
     const auto pendingDeadline =
         std::chrono::steady_clock::now() + std::chrono::milliseconds(extConfig_.pendingWaitTimeoutMs);
     for (auto index : pendingWaitList) {
-        PendingWaitAndFill(keys, objs, opRankId, opSeq, objMetas, index, pendingDeadline);
+        PendingWaitAndFill(keys, objs, opRankId, opSeq, objMetas, index, pendingDeadline, attachReadLease);
     }
 
     for (auto &f : rewarmFutures) {
@@ -420,7 +422,7 @@ void MmcMetaManager::ClassifyAndGroupKeys(const std::vector<std::string> &keys, 
     }
 }
 
-Result MmcMetaManager::SendBatchRpc(uint32_t rank, BatchRpcData &batch, std::vector<bool> &copyOk)
+Result MmcMetaManager::SendBatchRpc(uint32_t rank, BatchRpcData &batch, std::vector<Result> &copyResults)
 {
     if (batch.keys.empty()) {
         return MMC_OK;
@@ -444,9 +446,8 @@ Result MmcMetaManager::SendBatchRpc(uint32_t rank, BatchRpcData &batch, std::vec
         return MMC_ERROR;
     }
     for (size_t bi = 0; bi < groupIndices.size(); ++bi) {
-        if (batchResp.results_[bi] == MMC_OK) {
-            copyOk[groupIndices[bi]] = true;
-        } else {
+        copyResults[groupIndices[bi]] = batchResp.results_[bi];
+        if (batchResp.results_[bi] != MMC_OK) {
             MMC_LOG_WARN("copy failed, rank=" << rank << ", ret=" << batchResp.results_[bi]);
         }
     }
@@ -495,6 +496,29 @@ void MmcMetaManager::RollbackPendingRewarm(const std::string &key, const MmcMemO
     }
 }
 
+void MmcMetaManager::InvalidateInvalidLower(const std::string &key, const MmcMemObjMetaPtr &obj,
+                                             const MmcMemBlobPtr &source)
+{
+    if (source == nullptr || source->Type() != MEDIA_SSD) return;
+    bool detached = false;
+    Result ret = metaContainer_->WithCurrent(key, obj, [&](const MmcMemObjMetaPtr &current) {
+        std::lock_guard<std::mutex> guard(current->Mutex());
+        if (source->State() != READABLE) return MMC_UNMATCHED_STATE;
+        detached = current->DetachBlob(source);
+        return detached ? MMC_OK : MMC_UNMATCHED_STATE;
+    });
+    if (ret != MMC_OK || !detached) return;
+
+    std::vector<MmcMemBlobPtr> blobs{source};
+    // Never send a delete by key here; a replacement may already use that key.
+    obj->FinalizeBlobs(key, globalAllocator_, blobs, true, false);
+    metaContainer_->EraseIfCurrent(key, obj, [&](const MmcMemObjMetaPtr &candidate) {
+        std::lock_guard<std::mutex> guard(candidate->Mutex());
+        return candidate->NumBlobs() == 0;
+    });
+    MMC_LOG_WARN("Invalidated missing or corrupt lower blob, key=" << key);
+}
+
 Result MmcMetaManager::ApplyRewarm(const std::string &key, const MmcMemObjMetaPtr &memObj, const MmcMemBlobPtr &srcBlob,
                                    const MmcMemBlobPtr &dstBlob, uint32_t opRankId, uint32_t opSeq,
                                    MmcMemMetaDesc &objMeta, bool attachReadLease)
@@ -520,9 +544,6 @@ Result MmcMetaManager::ApplyRewarm(const std::string &key, const MmcMemObjMetaPt
         memObj->FinalizeBlobs(key, globalAllocator_, blobs, false);
         adoptGuard.lock();
         adoptGuard.release();
-        if (memObj->NumBlobs() == 0) {
-            metaContainer_->Erase(key);
-        }
         releaseSsdLease("after WRITE_OK failed");
         memObj->NotifyReadable();
         return ret;
@@ -542,9 +563,6 @@ Result MmcMetaManager::ApplyRewarm(const std::string &key, const MmcMemObjMetaPt
             memObj->FinalizeBlobs(key, globalAllocator_, blobs, false);
             adoptGuard.lock();
             adoptGuard.release();
-            if (memObj->NumBlobs() == 0) {
-                metaContainer_->Erase(key);
-            }
             releaseSsdLease("after READ_START failed");
             memObj->NotifyReadable();
             return ret;
@@ -561,8 +579,8 @@ Result MmcMetaManager::ApplyRewarm(const std::string &key, const MmcMemObjMetaPt
 }
 
 void MmcMetaManager::AttachReadLocks(const std::vector<std::string> &keys, uint32_t opRankId, uint32_t opSeq,
-                                     const std::vector<MmcMemObjMetaPtr> &objs, std::vector<MmcMemMetaDesc> &objMetas,
-                                     std::vector<size_t> &deferredLockList)
+                                      const std::vector<MmcMemObjMetaPtr> &objs, std::vector<MmcMemMetaDesc> &objMetas,
+                                      std::vector<size_t> &deferredLockList, bool attachReadLease)
 {
     TP_TRACE_BEGIN(TP_MMC_META_BATCH_GET_READ_START);
     for (auto index : deferredLockList) {
@@ -576,10 +594,12 @@ void MmcMetaManager::AttachReadLocks(const std::vector<std::string> &keys, uint3
             continue;
         }
 
-        auto ret = blob->UpdateState(keys[index], opRankId, opSeq, MMC_READ_START);
-        if (ret != MMC_OK) {
-            MMC_LOG_WARN("GetByRank: deferred READ_START failed for key=" << keys[index] << ", ret=" << ret);
-            continue;
+        if (attachReadLease) {
+            auto ret = blob->UpdateState(keys[index], opRankId, opSeq, MMC_READ_START);
+            if (ret != MMC_OK) {
+                MMC_LOG_WARN("GetByRank: deferred READ_START failed for key=" << keys[index] << ", ret=" << ret);
+                continue;
+            }
         }
 
         objMetas[index].FillFrom(memObj, blob);
@@ -589,8 +609,9 @@ void MmcMetaManager::AttachReadLocks(const std::vector<std::string> &keys, uint3
 }
 
 void MmcMetaManager::PendingWaitAndFill(const std::vector<std::string> &keys, const std::vector<MmcMemObjMetaPtr> &objs,
-                                        uint32_t opRankId, uint32_t opSeq, std::vector<MmcMemMetaDesc> &objMetas,
-                                        size_t index, const std::chrono::steady_clock::time_point &deadline)
+                                         uint32_t opRankId, uint32_t opSeq, std::vector<MmcMemMetaDesc> &objMetas,
+                                         size_t index, const std::chrono::steady_clock::time_point &deadline,
+                                         bool attachReadLease)
 {
     auto &memObj = objs[index];
     if (memObj == nullptr) {
@@ -612,7 +633,8 @@ void MmcMetaManager::PendingWaitAndFill(const std::vector<std::string> &keys, co
     }
 
     if (classified.upperBlob != nullptr) {
-        auto readRet = classified.upperBlob->UpdateState(keys[index], opRankId, opSeq, MMC_READ_START);
+        auto readRet = attachReadLease ?
+            classified.upperBlob->UpdateState(keys[index], opRankId, opSeq, MMC_READ_START) : MMC_OK;
         if (readRet == MMC_OK) {
             objMetas[index].FillFrom(memObj, classified.upperBlob);
             MmcMetaMetricManager::GetInstance().IncrementGetHitDramCounter(classified.upperBlob->GetDesc().rank_);
@@ -662,9 +684,9 @@ void MmcMetaManager::RewarmRankGroup(uint32_t rank, const std::vector<size_t> &i
 
     // ClassifyAndGroupKeys 保证同一 key 不会并发进入 rewarm，逐 key 构建消息后放锁，
     // 避免 RPC 期间长时间阻塞其他 key 的 Get 和淘汰路径。
-    std::vector<bool> copyOk(groupSize, false);
+    std::vector<Result> copyResults(groupSize, MMC_ERROR);
     TP_TRACE_BEGIN(TP_MMC_META_BATCH_GET_REWARM_RPC);
-    Result rpcRet = SendBatchRpc(rank, batch, copyOk);
+    Result rpcRet = SendBatchRpc(rank, batch, copyResults);
     TP_TRACE_END(TP_MMC_META_BATCH_GET_REWARM_RPC, rpcRet);
 
     if (rpcRet != MMC_OK) {
@@ -679,10 +701,8 @@ void MmcMetaManager::RewarmRankGroup(uint32_t rank, const std::vector<size_t> &i
 
         std::unique_lock<std::mutex> guard(context.objs[indices[j]]->Mutex());
         auto classified = ClassifyBlobs(context.objs[indices[j]]);
-        const bool srcChanged =
-            classified.lowerBlob == nullptr || classified.lowerBlob->GetDesc() != srcBlobs[j]->GetDesc();
-        const bool dstChanged =
-            classified.pendingBlob == nullptr || classified.pendingBlob->GetDesc() != dstBlobs[j]->GetDesc();
+        const bool srcChanged = classified.lowerBlob != srcBlobs[j];
+        const bool dstChanged = classified.pendingBlob != dstBlobs[j];
         if (srcChanged || dstChanged) {
             MMC_LOG_ERROR("rewarm finalize: blobs changed for key=" << context.keys[indices[j]] << ", srcChanged="
                                                                     << srcChanged << ", dstChanged=" << dstChanged);
@@ -694,16 +714,21 @@ void MmcMetaManager::RewarmRankGroup(uint32_t rank, const std::vector<size_t> &i
                               context.opRankId, context.opSeq);
             }
             MmcMetaMetricManager::GetInstance().IncrementRewarmFailCounter(srcBlobs[j]->GetDesc().rank_);
-            copyOk[j] = false;
+            copyResults[j] = MMC_ERROR;
             dstBlobs[j] = nullptr;
             continue;
         }
 
-        const bool rollback = (rpcRet != MMC_OK) || !copyOk[j];
+        const bool rollback = (rpcRet != MMC_OK) || copyResults[j] != MMC_OK;
         if (rollback) {
             RollbackEntry(context.keys[indices[j]], context.objs[indices[j]], classified.lowerBlob,
                           classified.pendingBlob, context.opRankId, context.opSeq);
             MmcMetaMetricManager::GetInstance().IncrementRewarmFailCounter(classified.lowerBlob->GetDesc().rank_);
+            if (rpcRet == MMC_OK && (copyResults[j] == MMC_UNMATCHED_KEY ||
+                                     copyResults[j] == MMC_STORAGE_CORRUPT)) {
+                guard.unlock();
+                InvalidateInvalidLower(context.keys[indices[j]], context.objs[indices[j]], srcBlobs[j]);
+            }
             continue;
         }
 
@@ -712,8 +737,17 @@ void MmcMetaManager::RewarmRankGroup(uint32_t rank, const std::vector<size_t> &i
                                  attachReadLease);
         if (ret != MMC_OK) {
             MmcMetaMetricManager::GetInstance().IncrementRewarmFailCounter(classified.lowerBlob->GetDesc().rank_);
-            copyOk[j] = false;
+            copyResults[j] = MMC_ERROR;
             dstBlobs[j] = nullptr;
+            bool empty = context.objs[indices[j]]->NumBlobs() == 0;
+            guard.unlock();
+            if (empty) {
+                metaContainer_->EraseIfCurrent(context.keys[indices[j]], context.objs[indices[j]],
+                    [&](const MmcMemObjMetaPtr &current) {
+                        std::lock_guard<std::mutex> lock(current->Mutex());
+                        return current->NumBlobs() == 0;
+                    });
+            }
             continue;
         }
     }
@@ -722,7 +756,9 @@ void MmcMetaManager::RewarmRankGroup(uint32_t rank, const std::vector<size_t> &i
     // 状态更新已重新持有并释放 key 锁，此处再操作容器，保持容器锁 -> memObj 锁的既有顺序。
     if (rpcRet == MMC_OK) {
         for (size_t j = 0; j < groupSize; ++j) {
-            if (prepared[j] && copyOk[j] && dstBlobs[j] != nullptr) {
+            MmcMemObjMetaPtr current;
+            if (prepared[j] && copyResults[j] == MMC_OK && dstBlobs[j] != nullptr &&
+                metaContainer_->Get(context.keys[indices[j]], current) == MMC_OK && current == context.objs[indices[j]]) {
                 metaContainer_->InsertLru(context.keys[indices[j]], static_cast<MediaType>(dstBlobs[j]->Type()));
             }
         }
@@ -769,6 +805,15 @@ Result MmcMetaManager::ExistKey(const std::string &key)
         return ret;
     }
 
+    if (extConfig_.remoteVerifyOnExists && upperBlob == nullptr && lowerBlob != nullptr) {
+        std::vector<MmcMemMetaDesc> warmed;
+        ret = GetByRank({key}, GenerateOperateId(UINT32_MAX), warmed, false);
+        if (ret != MMC_OK) return ret;
+        ret = ExistKeyCore(key, memObj, upperBlob, lowerBlob);
+        if (ret != MMC_OK) return ret;
+        return upperBlob != nullptr ? MMC_OK : MMC_TIMEOUT;
+    }
+
     if (extConfig_.prefetchEnabled && upperBlob == nullptr && lowerBlob != nullptr) {
         MMC_LOG_DEBUG("ExistKey triggering prefetch for key " << key);
         TriggerPrefetch(key, memObj, lowerBlob);
@@ -781,14 +826,41 @@ Result MmcMetaManager::BatchExist(const std::vector<std::string> &keys, std::vec
 {
     results.assign(keys.size(), MMC_UNMATCHED_KEY);
     std::vector<std::string> prefetchCandidates;
+    std::vector<size_t> remoteCandidates;
     for (size_t i = 0; i < keys.size(); ++i) {
         MmcMemObjMetaPtr memObj;
         MmcMemBlobPtr upperBlob;
         MmcMemBlobPtr lowerBlob;
         Result ret = ExistKeyCore(keys[i], memObj, upperBlob, lowerBlob);
         results[i] = ret;
-        if (ret == MMC_OK && extConfig_.prefetchEnabled && upperBlob == nullptr && lowerBlob != nullptr) {
+        if (ret == MMC_OK && extConfig_.remoteVerifyOnExists && upperBlob == nullptr && lowerBlob != nullptr) {
+            results[i] = MMC_UNMATCHED_KEY;
+            remoteCandidates.push_back(i);
+        } else if (ret == MMC_OK && extConfig_.prefetchEnabled && upperBlob == nullptr && lowerBlob != nullptr) {
             prefetchCandidates.push_back(keys[i]);
+        }
+    }
+
+    constexpr size_t REMOTE_VERIFY_BATCH_LIMIT = 32;
+    for (size_t start = 0; start < remoteCandidates.size(); start += REMOTE_VERIFY_BATCH_LIMIT) {
+        size_t end = std::min(start + REMOTE_VERIFY_BATCH_LIMIT, remoteCandidates.size());
+        std::vector<std::string> candidates;
+        candidates.reserve(end - start);
+        for (size_t i = start; i < end; ++i) candidates.push_back(keys[remoteCandidates[i]]);
+        std::vector<MmcMemMetaDesc> warmed;
+        auto rewarmRet = GetByRank(candidates, GenerateOperateId(UINT32_MAX), warmed, false);
+        if (rewarmRet != MMC_OK) {
+            MMC_LOG_ERROR("Remote BatchExist rewarm failed, ret=" << rewarmRet << ", count=" << candidates.size());
+            for (size_t i = start; i < end; ++i) results[remoteCandidates[i]] = rewarmRet;
+            continue;
+        }
+        for (size_t i = start; i < end; ++i) {
+            MmcMemObjMetaPtr current;
+            MmcMemBlobPtr upper;
+            MmcMemBlobPtr lower;
+            auto currentRet = ExistKeyCore(keys[remoteCandidates[i]], current, upper, lower);
+            results[remoteCandidates[i]] = currentRet == MMC_OK ?
+                (upper != nullptr ? MMC_OK : MMC_TIMEOUT) : currentRet;
         }
     }
 
@@ -1143,26 +1215,27 @@ void MmcMetaManager::ReleaseBackupReadLease(const BackupReadLease &lease)
     }
 }
 
-Result MmcMetaManager::AddSsdBlob(const std::string &key, const MmcMemBlobDesc &desc)
+Result MmcMetaManager::AddSsdBlobIfCurrent(const std::string &key, const MmcMemBlobDesc &source,
+                                           const MmcMemBlobDesc &lower, const BackupReadLease &lease)
 {
-    MmcMemObjMetaPtr objMeta;
-    if (metaContainer_->Get(key, objMeta) != MMC_OK || objMeta == nullptr) {
-        MMC_LOG_DEBUG("Key not found for adding SSD blob, key=" << key);
-        return MMC_UNMATCHED_KEY;
+    if (lease.object == nullptr || lease.key != key || source.mediaType_ != MEDIA_DRAM ||
+        lower.mediaType_ != MEDIA_SSD || lower.rank_ != source.rank_ || lower.size_ != source.size_) {
+        return MMC_INVALID_PARAM;
     }
-    std::unique_lock<std::mutex> guard(objMeta->Mutex());
-    auto ssdBlob = MmcMakeRef<MmcMemBlob>(desc.rank_, 0, desc.size_, MEDIA_SSD, READABLE);
-    if (ssdBlob == nullptr) {
-        MMC_LOG_ERROR("Failed to create SSD blob, key=" << key);
-        return MMC_MALLOC_FAILED;
-    }
-    Result ret = objMeta->AddBlob(ssdBlob);
-    if (ret != MMC_OK) {
-        MMC_LOG_ERROR("Failed to add SSD blob to meta object, key=" << key << ", ret=" << ret);
-        return ret;
-    }
-    MMC_LOG_DEBUG("Added SSD blob, key=" << key << ", rank=" << desc.rank_ << ", size=" << desc.size_);
-    return MMC_OK;
+    return metaContainer_->WithCurrent(key, lease.object, [&](const MmcMemObjMetaPtr &objMeta) -> Result {
+        std::lock_guard<std::mutex> guard(objMeta->Mutex());
+        bool sourceHeld = false;
+        for (const auto &blob : objMeta->GetBlobs()) {
+            if (blob->GetDesc() == lower) return MMC_DUPLICATED_OBJECT;
+            if (blob->GetDesc() == source && blob->State() == READABLE &&
+                blob->HasLease(K_BACKUP_LEASE_RANK_ID, lease.sequence)) {
+                sourceHeld = true;
+            }
+        }
+        if (!sourceHeld) return MMC_UNMATCHED_STATE;
+        auto ssdBlob = MmcMakeRef<MmcMemBlob>(lower.rank_, lower.gva_, lower.size_, MEDIA_SSD, READABLE);
+        return ssdBlob == nullptr ? MMC_MALLOC_FAILED : objMeta->AddBlob(ssdBlob);
+    });
 }
 
 namespace {

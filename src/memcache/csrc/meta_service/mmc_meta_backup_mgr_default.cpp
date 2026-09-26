@@ -16,6 +16,7 @@
 #include "mmc_mem_obj_meta.h"
 #include "mmc_msg_client_meta.h"
 #include "mmc_ptracer.h"
+#include "mmc_remote_dram.h"
 
 namespace ock {
 namespace mmc {
@@ -101,8 +102,18 @@ void MMCMetaBackUpMgrDefault::SendBackup2Local()
 void MMCMetaBackUpMgrDefault::SendBackupForRank(uint32_t rank, std::vector<MetaBackUpOperate> &entries)
 {
     MetaReplicateRequest request;
-    std::vector<BackupReadLease> leases;
-    leases.reserve(entries.size());
+    request.msgVer = RemoteDramEnabled() ? 1 : 0;
+    std::map<size_t, BackupReadLease> leases;
+    struct LeaseScope {
+        std::map<size_t, BackupReadLease> &held;
+        std::function<void(const BackupReadLease &)> &release;
+        ~LeaseScope()
+        {
+            if (release) {
+                for (const auto &item : held) release(item.second);
+            }
+        }
+    } leaseScope{leases, releaseReadLease_};
     request.ops_.reserve(entries.size());
     request.keys_.reserve(entries.size());
     request.blobs_.reserve(entries.size());
@@ -113,11 +124,15 @@ void MMCMetaBackUpMgrDefault::SendBackupForRank(uint32_t rank, std::vector<MetaB
                 MMC_LOG_DEBUG("Skip backup without a DRAM read lease, key=" << e.key_ << ", blob=" << e.desc_);
                 continue;
             }
-            leases.push_back(std::move(lease));
+            leases.emplace(request.ops_.size(), std::move(lease));
         }
         request.ops_.push_back(e.op_);
         request.keys_.push_back(std::move(e.key_));
         request.blobs_.push_back(e.desc_);
+        if (request.msgVer == 1) {
+            request.lowerGenerations_.push_back(e.op_ == META_BACKUP_ADD && e.desc_.mediaType_ == MEDIA_DRAM ?
+                                                  NewLowerGeneration() : 0);
+        }
     }
 
     if (request.ops_.empty()) {
@@ -129,11 +144,7 @@ void MMCMetaBackUpMgrDefault::SendBackupForRank(uint32_t rank, std::vector<MetaB
     TP_TRACE_BEGIN(TP_MMC_META_ASYNC_FLUSH_RPC);
     Result ret = metaNetServer_->SyncCall(rank, request, response, BACKUP_RPC_TIMEOUT_SECOND);
     TP_TRACE_END(TP_MMC_META_ASYNC_FLUSH_RPC, ret);
-    for (const auto &lease : leases) {
-        releaseReadLease_(lease);
-    }
-
-    if (ret != MMC_OK) {
+    if (ret != MMC_OK || response.ret_ != MMC_OK || response.msgVer != request.msgVer) {
         MMC_LOG_ERROR("mmc meta back up failed, bm rank " << rank << ", ret=" << ret
                                                           << ", keys: " << request.KeysString());
         return;
@@ -149,7 +160,7 @@ void MMCMetaBackUpMgrDefault::SendBackupForRank(uint32_t rank, std::vector<MetaB
         return;
     }
 
-    std::vector<std::pair<std::string, MmcMemBlobDesc>> flushedBlobs;
+    std::vector<AsyncFlushBlob> flushedBlobs;
     for (size_t i = 0; i < response.keyResults_.size(); ++i) {
         if (request.ops_[i] == META_BACKUP_ADD) {
             if (isSsdAvailableFunc_ == nullptr || !isSsdAvailableFunc_(rank)) {
@@ -161,10 +172,12 @@ void MMCMetaBackUpMgrDefault::SendBackupForRank(uint32_t rank, std::vector<MetaB
                 continue;
             }
             if (response.keyResults_[i] == MMC_OK) {
+                const auto lease = leases.find(i);
+                if (lease == leases.end()) continue;
                 MmcMemBlobDesc ssdDesc = request.blobs_[i];
                 ssdDesc.mediaType_ = MEDIA_SSD;
-                ssdDesc.gva_ = 0;
-                flushedBlobs.emplace_back(request.keys_[i], ssdDesc);
+                ssdDesc.gva_ = request.msgVer == 1 ? request.lowerGenerations_[i] : 0;
+                flushedBlobs.push_back({request.keys_[i], request.blobs_[i], ssdDesc, lease->second});
             } else {
                 MMC_LOG_WARN("async flush failed for key=" << request.keys_[i] << ", ret=" << response.keyResults_[i]);
             }

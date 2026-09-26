@@ -105,6 +105,34 @@
 | ock.mmc.dynamic_config.enable                  | bool       | optional     | false                | true/false                                                                            | Enable dynamic config polling. When enabled, LocalService periodically checks the config file for `meta_service_url` and `config_store_url` changes and lazily updates reconnection targets without restart                              |
 | ock.mmc.dynamic_config.interval                | integer    | optional     | 5                    | [1, 300]                                                                              | Polling interval in seconds for dynamic config file check                                                                                                                                                                                |
 
+## Experimental Host TCP remote DRAM lower tier
+
+Build the pinned UBS-IO backend with `MMC_REMOTE_DRAM_TCP=ON` in the environment and
+`bash script/build_and_pack_run.sh --build_mode RELEASE --build_test OFF --build_ubsio ON`.
+Set `UBSIO_KVC_MODE=remote_dram_tcp` on **both MetaService and all LocalService processes**;
+the build option alone does not select the runtime mode. Configure storage-enabled LocalServices
+with distinct `UBSIO_KVC_TENANT_ID` values greater than 1 and
+`UBSIO_KVC_REMOTE_IPS=<host1 IPv4>,<host2 IPv4>`. Their UBS-IO daemon configuration must select TCP,
+single-copy healthy partitions on those two remote hosts, and no disk/underfs.
+Keep the existing local DRAM MemFabric transport and aggregate capacity configuration.
+
+`MEDIA_SSD` is an internal lower-tier label in this mode; no SSD is used. Its `gva_` is an opaque
+per-backup generation, not a memory address. Replication uses message version 1 with a parallel
+generation vector and validates the response version. Upgrade MetaService, LocalService and clients
+together from the same build, stop the old stack first, and start with empty cache metadata.
+Version 0 remains the default standalone protocol. Do not mix old and new peers in remote mode.
+
+The remote KVC directory is volatile and owned by the original SDK process. Reads must return to that
+LocalService/rank; this prototype does not implement a cross-process shared KVC namespace. Reinitializing
+that SDK loses its directory. On LocalService re-registration, remote descriptors are deliberately omitted
+instead of reconstructed from key existence; misses are recomputed and refilled. Late writes/deletes address
+only their physical generation, and missing/corrupt reads remove only the matching recovery descriptor.
+Remote key-only eviction callbacks are not authoritative: remote-only Exists verifies through a complete read.
+The SDK directory permits at most 1,048,576 entries (4,096 per hash shard); admission can fail when a shard
+fills. TCP timeout buffers remain quarantined until SDK shutdown, and unreachable remote fragments are
+reclaimed by normal volatile WCache eviction. Monitor pool exhaustion and restart only the isolated cache
+stack when necessary; these are capacity/availability limits, not successful cache hits.
+
 ## KV Events Config
 
 | key                              | value type | requirement | default | valid range          | description                                                               |

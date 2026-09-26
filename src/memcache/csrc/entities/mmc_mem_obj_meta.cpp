@@ -47,6 +47,18 @@ Result MmcMemObjMeta::AddBlob(const MmcMemBlobPtr &blob)
     return MMC_OK;
 }
 
+bool MmcMemObjMeta::DetachBlob(const MmcMemBlobPtr &blob)
+{
+    for (auto it = blobs_.begin(); it != blobs_.end(); ++it) {
+        if (*it == blob) {
+            blobs_.erase(it);
+            --numBlobs_;
+            return true;
+        }
+    }
+    return false;
+}
+
 Result MmcMemObjMeta::RemoveBlobs(const MmcBlobFilterPtr &filter, bool revert)
 {
     uint8_t oldNumBlobs = numBlobs_;

@@ -21,6 +21,29 @@
 
 namespace ock {
 namespace mmc {
+namespace {
+// The KVC C ABI returns small positive values; MemCache uses negative Result codes.
+Result MapKvcResult(int32_t code)
+{
+    if (code <= 0) return code;
+    switch (code) {
+        case 3: return MMC_INVALID_PARAM;
+        case 4: return MMC_MALLOC_FAILED;
+        case 5:
+        case 7:
+        case 10: return MMC_TIMEOUT;
+        case 8: return MMC_UNMATCHED_KEY;
+        case 9: return MMC_STORAGE_CORRUPT;
+        default: return MMC_ERROR;
+    }
+}
+
+template<typename T> void MapBatchResults(std::vector<T> &results)
+{
+    for (auto &result : results) result = MapKvcResult(result);
+}
+} // namespace
+
 std::map<std::string, MmcRef<MmcUbsIoProxy>> MmcUbsIoProxyFactory::instances_;
 std::mutex MmcUbsIoProxyFactory::instanceMutex_;
 
@@ -46,7 +69,7 @@ Result MmcUbsIoProxy::InitUbsIo(int32_t deviceId, const std::string &confPath)
             return result;
         }
     }
-    result = DlUbsioApi::UbsioClientInit(deviceId, confPath);
+    result = MapKvcResult(DlUbsioApi::UbsioClientInit(deviceId, confPath));
     if (result != MMC_OK) {
         MMC_LOG_ERROR("Failed to init ubsio, deviceId=" << deviceId << ", error: " << result);
         DlUbsioApi::CleanupLibrary();
@@ -110,7 +133,7 @@ Result MmcUbsIoProxy::Put(const std::string &key, void *buf, size_t length)
     if (ret != MMC_OK) {
         MMC_LOG_ERROR("ubsIo Put failed, key=" << key << ", ret=" << ret);
     }
-    return ret;
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::Get(const std::string &key, void *buf, size_t length)
@@ -126,7 +149,7 @@ Result MmcUbsIoProxy::Get(const std::string &key, void *buf, size_t length)
     if (ret != MMC_OK) {
         MMC_LOG_ERROR("ubsIo Get failed, key=" << key << ", ret=" << ret);
     }
-    return ret;
+    return MapKvcResult(ret);
 }
 
 bool MmcUbsIoProxy::Exist(const std::string &key)
@@ -153,7 +176,7 @@ Result MmcUbsIoProxy::Delete(const std::string &key)
     if (ret != MMC_OK) {
         MMC_LOG_ERROR("ubsIo Delete failed, key=" << key << ", ret=" << ret);
     }
-    return ret;
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::GetLength(const std::string &key, size_t &length)
@@ -170,7 +193,7 @@ Result MmcUbsIoProxy::GetLength(const std::string &key, size_t &length)
         length = tempLength;
         return MMC_OK;
     }
-    return MMC_ERROR;
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::BatchPut(const std::vector<std::string> &keys, const std::vector<void *> &bufs,
@@ -199,7 +222,8 @@ Result MmcUbsIoProxy::BatchPut(const std::vector<std::string> &keys, const std::
     int32_t ret = DlUbsioApi::UbsioBatchPut(keyPtrs.data(), keysCount, bufferPtrs.data(), lengthCopy.data(),
                                             results.data(), flags);
     TP_TRACE_END(TP_MMC_UBS_IO_BATCH_PUT, ret);
-    return ret;
+    MapBatchResults(results);
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::BatchGet(const std::vector<std::string> &keys, void **bufs, std::vector<size_t> &lengths,
@@ -223,7 +247,8 @@ Result MmcUbsIoProxy::BatchGet(const std::vector<std::string> &keys, void **bufs
     TP_TRACE_BEGIN(TP_MMC_UBS_IO_BATCH_GET);
     int32_t ret = DlUbsioApi::UbsioBatchGet(keyPtrs.data(), keysCount, bufs, lengths.data(), results.data(), flags);
     TP_TRACE_END(TP_MMC_UBS_IO_BATCH_GET, ret);
-    return ret;
+    MapBatchResults(results);
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::BatchGetWithHBM(const std::vector<std::string> &keys,
@@ -273,7 +298,8 @@ Result MmcUbsIoProxy::BatchGetWithHBM(const std::vector<std::string> &keys,
     TP_TRACE_END(TP_MMC_UBS_IO_BATCH_GET, ret);
     delete[] bufs;
     delete[] lengths;
-    return ret;
+    MapBatchResults(results);
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::BatchGetFree(void **bufs, int keysCount)
@@ -283,7 +309,7 @@ Result MmcUbsIoProxy::BatchGetFree(void **bufs, int keysCount)
     TP_TRACE_BEGIN(TP_MMC_UBS_IO_BATCH_FREE);
     int32_t ret = DlUbsioApi::UbsioBatchFreeAddress(bufs, keysCount);
     TP_TRACE_END(TP_MMC_UBS_IO_BATCH_FREE, ret);
-    return ret;
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::BatchExist(const std::vector<std::string> &keys, bool *results)
@@ -303,7 +329,7 @@ Result MmcUbsIoProxy::BatchExist(const std::vector<std::string> &keys, bool *res
     TP_TRACE_BEGIN(TP_MMC_UBS_IO_BATCH_EXIST);
     int32_t ret = DlUbsioApi::UbsioBatchExist(keyPtrs.data(), keysCount, results, flags);
     TP_TRACE_END(TP_MMC_UBS_IO_BATCH_EXIST, ret);
-    return ret;
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::BatchDelete(const std::vector<std::string> &keys, std::vector<int32_t> &results)
@@ -323,7 +349,8 @@ Result MmcUbsIoProxy::BatchDelete(const std::vector<std::string> &keys, std::vec
     TP_TRACE_BEGIN(TP_MMC_UBS_IO_BATCH_DELETE);
     int32_t ret = DlUbsioApi::UbsioBatchDelete(keyPtrs.data(), keysCount, results.data(), flags);
     TP_TRACE_END(TP_MMC_UBS_IO_BATCH_DELETE, ret);
-    return ret;
+    MapBatchResults(results);
+    return MapKvcResult(ret);
 }
 
 Result MmcUbsIoProxy::BatchGetLength(const std::vector<std::string> &keys, std::vector<size_t> &lengths,
@@ -345,7 +372,8 @@ Result MmcUbsIoProxy::BatchGetLength(const std::vector<std::string> &keys, std::
     TP_TRACE_BEGIN(TP_MMC_UBS_IO_BATCH_LENGTH);
     int32_t ret = DlUbsioApi::UbsioBatchGetLength(keyPtrs.data(), keysCount, lengths.data(), results.data(), flags);
     TP_TRACE_END(TP_MMC_UBS_IO_BATCH_LENGTH, ret);
-    return ret;
+    MapBatchResults(results);
+    return MapKvcResult(ret);
 }
 } // namespace mmc
 } // namespace ock
