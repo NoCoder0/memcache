@@ -137,6 +137,8 @@ enum affinity_policy : int {
 #define MAX_BLOB_COPIES 8
 
 constexpr uint32_t GET_KEY_INFO_FOR_LAYER_WISE = 1;
+// Query metadata without changing its LRU position or triggering layer rewarm.
+constexpr uint32_t GET_KEY_INFO_NO_PROMOTE = 1U << 1;
 
 typedef struct {
     uint16_t mediaType;

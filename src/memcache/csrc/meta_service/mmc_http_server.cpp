@@ -85,6 +85,27 @@ bool GetRequiredParam(ock::acc::AccHttpRequestContext &ctx, const std::string &p
     return true;
 }
 
+bool GetOptionalBoolParam(ock::acc::AccHttpRequestContext &ctx, const std::string &paramName, bool defaultValue,
+                          bool &value)
+{
+    const auto params = ctx.Params();
+    const auto paramIt = params.find(paramName);
+    if (paramIt == params.end()) {
+        value = defaultValue;
+        return true;
+    }
+    if (paramIt->second == "true" || paramIt->second == "1") {
+        value = true;
+        return true;
+    }
+    if (paramIt->second == "false" || paramIt->second == "0") {
+        value = false;
+        return true;
+    }
+    ReplyJsonError200(ctx, "Invalid boolean parameter '" + paramName + "'");
+    return false;
+}
+
 void SplitCommaSeparated(const std::string &source, std::vector<std::string> &items)
 {
     items.clear();
@@ -298,8 +319,13 @@ void MmcHttpServer::RegisterDataManagementEndpoints()
                 return acc::ACC_OK;
             }
 
+            bool noPromote = false;
+            if (!GetOptionalBoolParam(ctx, "no_promote", false, noPromote)) {
+                return acc::ACC_OK;
+            }
+
             nlohmann::json result;
-            const Result ret = restApiFacade_->QueryKey(key, result);
+            const Result ret = restApiFacade_->QueryKey(key, result, noPromote);
             if (ret != MMC_OK) {
                 const std::string message = ret == MMC_UNMATCHED_KEY ? kErrorKeyNotFound : kErrorInternalServer;
                 return ReplyJsonError200(ctx, message);
@@ -317,10 +343,15 @@ void MmcHttpServer::RegisterDataManagementEndpoints()
             return acc::ACC_OK;
         }
 
+        bool noPromote = false;
+        if (!GetOptionalBoolParam(ctx, "no_promote", false, noPromote)) {
+            return acc::ACC_OK;
+        }
+
         std::vector<std::string> keys;
         SplitCommaSeparated(keyString, keys);
         nlohmann::json result;
-        const Result ret = restApiFacade_->BatchQueryKeys(keys, result);
+        const Result ret = restApiFacade_->BatchQueryKeys(keys, result, noPromote);
         if (ret != MMC_OK) {
             return ReplyJsonError200(ctx, kErrorInternalServer);
         }

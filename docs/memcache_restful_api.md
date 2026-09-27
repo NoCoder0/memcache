@@ -787,6 +787,13 @@ curl "http://127.0.0.1:8000/query_key?key=key_a"
 | 参数名 | 类型 | 必填 | 描述 |
 |---|---|---|---|
 | `key` | String | 是 | 要查询的键名 |
+| `no_promote` | Boolean | 否 | 设为 `true` 或 `1` 时只读取当前元数据，不提升 LRU 位置，也不触发分层预取/回温；默认 `false`。查询请求仍计入 Meta 查询指标。 |
+
+只读状态快照示例：
+
+```bash
+curl "http://127.0.0.1:8000/query_key?key=key_a&no_promote=true"
+```
 
 ### 成功示例
 
@@ -871,6 +878,13 @@ curl "http://127.0.0.1:8000/batch_query_keys?keys=key_a,key_b"
 | 参数名 | 类型 | 必填 | 描述 |
 |---|---|---|---|
 | `keys` | String | 是 | 逗号分隔的 key 列表 |
+| `no_promote` | Boolean | 否 | 设为 `true` 或 `1` 时不提升 LRU，也不触发分层预取/回温；默认 `false`。查询请求仍计入 Meta 查询指标。 |
+
+只读状态快照示例：
+
+```bash
+curl "http://127.0.0.1:8000/batch_query_keys?keys=key_a,key_b&no_promote=true"
+```
 
 ### 成功示例
 

@@ -1576,12 +1576,14 @@ Result MmcMetaManager::Query(const std::string &key, uint64_t operateId, uint32_
         return MMC_UNMATCHED_KEY;
     }
 
-    TP_TRACE_BEGIN(TP_MMC_META_QUERY_PROMOTE_LRU);
-    auto ret = metaContainer_->Promote(key);
-    TP_TRACE_END(TP_MMC_META_QUERY_PROMOTE_LRU, ret)
-    if (ret != MMC_OK) {
-        MMC_LOG_ERROR("Query key: " << key << " Promote failed. ErrCode: " << ret);
-        return ret;
+    if ((flags & GET_KEY_INFO_NO_PROMOTE) == 0) {
+        TP_TRACE_BEGIN(TP_MMC_META_QUERY_PROMOTE_LRU);
+        auto ret = metaContainer_->Promote(key);
+        TP_TRACE_END(TP_MMC_META_QUERY_PROMOTE_LRU, ret)
+        if (ret != MMC_OK) {
+            MMC_LOG_ERROR("Query key: " << key << " Promote failed. ErrCode: " << ret);
+            return ret;
+        }
     }
 
     std::unique_lock<std::mutex> guard(objMeta->Mutex());
