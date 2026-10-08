@@ -11,7 +11,7 @@
 ####################################################################
 # ubs-io (SSD backend)
 ####################################################################
-option(MMC_REMOTE_DRAM_TCP "Build against the pinned two-node TCP DRAM backend" OFF)
+option(MMC_REMOTE_DRAM_TCP "Build against the pinned remote TCP DRAM backend" OFF)
 message(STATUS "BUILD_UBSIO = ${BUILD_UBSIO}")
 if(MMC_REMOTE_DRAM_TCP AND NOT BUILD_UBSIO)
     message(FATAL_ERROR "MMC_REMOTE_DRAM_TCP requires BUILD_UBSIO=ON")
@@ -41,8 +41,8 @@ if (BUILD_UBSIO)
                         OUTPUT_VARIABLE UBSIO_SOURCE_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE
                         RESULT_VARIABLE UBSIO_SOURCE_RESULT)
         if(NOT UBSIO_SOURCE_RESULT EQUAL 0 OR
-           NOT UBSIO_SOURCE_COMMIT STREQUAL "42858407737bc4c322f5f39633935529b41bac19")
-            message(FATAL_ERROR "UBS-IO source must be 42858407737bc4c322f5f39633935529b41bac19")
+           NOT UBSIO_SOURCE_COMMIT STREQUAL "74290e45653f0172ce78c21e410edb4f05c08697")
+            message(FATAL_ERROR "UBS-IO source must be 74290e45653f0172ce78c21e410edb4f05c08697")
         endif()
         set(ENV{UBSIO_HCOM_ENABLE_RDMA} OFF)
         FetchContent_Declare(ubs-io SOURCE_DIR "${UBSIO_SRC_DIR}")
