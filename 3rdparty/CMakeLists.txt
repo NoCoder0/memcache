@@ -137,8 +137,10 @@ set(BUILD_FROM_MEMCACHE ON)
 add_subdirectory(memfabric_hybrid)
 set(BUILD_TESTS ${_ACTUAL_BUILD_TESTS})
 
-# This module is embedded in MemCache as well as libmf_smem. Keep its globals
-# private so loading both libraries cannot register two destructors for one map.
-set_target_properties(config_store_object PROPERTIES
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN YES)
+# These modules are embedded in MemCache as well as libmf_smem. Keep their
+# globals and registration functions in one private scope in each library.
+foreach (_MMC_EMBEDDED_MF_TARGET config_store_object acc_tcp_net_object ptracer_object)
+    set_target_properties(${_MMC_EMBEDDED_MF_TARGET} PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN YES)
+endforeach ()
