@@ -169,3 +169,19 @@ python3 test_mmc_demo.py
 ```bash
 pip uninstall memcache_hybrid
 ```
+
+## 远端 DRAM 配置
+
+沿用原有配置文件加载和路径传递流程。在现有 `mmc-local.conf` 中增加远端 DRAM 设置：
+
+```ini
+ock.mmc.local_service.storage.enabled = true
+ock.mmc.local_service.storage.mode = remote_dram
+ubsio.kvc.mode = remote_dram_tcp
+```
+
+同一文件中补齐 UBS-IO 所需的远端地址、网络、TLS 等参数，可参考
+[远端 DRAM 配置片段](../config/ubsio-kvc-remote-dram.conf.fragment)。
+LocalService 仍将 `config.configFilePath` 传给 UBS-IO，沿用原有内部 `UBSIO_CONFIG_PATH` 设置流程；不新增配置路径选项。
+MemCache 只读取自己的 `storage.mode`，UBS-IO 解析 `ubsio.*` 配置。两项模式需保持一致，修改后重启服务。
+不配置 `storage.mode` 时默认为 `standalone`，原有 SSD 配置继续使用。MetaService 无需新增模式配置。

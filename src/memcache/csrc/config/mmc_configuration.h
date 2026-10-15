@@ -42,6 +42,7 @@ constexpr uint32_t CONF_MUST = 1;
 constexpr uint64_t DRAM_SIZE_ALIGNMENT = 2097152; // 2MB
 constexpr uint64_t HBM_SIZE_ALIGNMENT = 2097152;  // 2MB
 
+const std::string kStorageModeEnumStr = "standalone||remote_dram";
 const std::string BOOL_ENUM_STR = "false||true";
 const std::string LOG_LEVEL_ENUM_STR = "debug||info||warn||error";
 const std::string LOG_OUTPUT_TARGET_ENUM_STR = "screen||file||both";
@@ -390,6 +391,7 @@ public:
             OCK_MMC_CLIENT_WRITE_THREAD_POOL_SIZE,
             VIntRange::Create(OCK_MMC_CLIENT_WRITE_THREAD_POOL_SIZE.first, MIN_THREAD_POOL_SIZE, MAX_THREAD_POOL_SIZE),
             0);
+        AddStrConf(kLocalServiceStorageMode, VStrEnum::Create(kLocalServiceStorageMode.first, kStorageModeEnumStr), 0);
         AddBoolConf(OCK_MMC_LOCAL_SERVICE_STORAGE_ENABLED,
                     VStrEnum::Create(OCK_MMC_LOCAL_SERVICE_STORAGE_ENABLED.first, BOOL_ENUM_STR), 0);
         AddBoolConf(OCK_MMC_LOCAL_SERVICE_DRAM_BEST_EFFORT,
@@ -426,6 +428,7 @@ public:
         config.localHBMSize = GetUInt64(ConfConstant::OKC_MMC_LOCAL_SERVICE_HBM_SIZE.first, 0);
         config.localMaxHBMSize = GetUInt64(ConfConstant::OKC_MMC_LOCAL_SERVICE_MAX_HBM_SIZE.first, config.localHBMSize);
         config.storageEnabled = GetBool(ConfConstant::OCK_MMC_LOCAL_SERVICE_STORAGE_ENABLED);
+        config.storageRemoteDram = GetString(ConfConstant::kLocalServiceStorageMode) == "remote_dram";
         if (GetBool(ConfConstant::OCK_MMC_LOCAL_SERVICE_DRAM_BEST_EFFORT)) {
             config.flags |= SMEM_BM_FLAG_DRAM_BEST_EFFORT;
         }

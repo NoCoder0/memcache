@@ -344,6 +344,7 @@ Result MmcLocalServiceDefault::InitUbsIo(int32_t deviceId, const std::string &co
     auto ret = ubsIoProxy->InitUbsIo(deviceId, confPath);
     if (ret != MMC_OK) {
         ubsIoProxy->SetMetaEventCallback(nullptr);
+        ubsIoProxyPtr_ = nullptr;
     }
     return ret;
 }
@@ -357,6 +358,7 @@ Result MmcLocalServiceDefault::UpdateMetaBackup(const std::vector<uint32_t> &ops
     const auto blobCount = blobs.size();
     auto length = keyCount;
     if (keyCount != blobCount || keyCount != opCount) {
+        keyResults.assign(keyCount, MMC_ERROR);
         MMC_LOG_ERROR("Local service replicate error, length mismatch: opSize=" << opCount << ", keySize=" << keyCount
                                                                                 << ", blobSize=" << blobCount);
         return MMC_INVALID_PARAM;
@@ -413,7 +415,7 @@ std::vector<size_t> MmcLocalServiceDefault::ProcessBackupMetadata(const std::vec
                                                                   const std::vector<MmcMemBlobDesc> &blobs,
                                                                   size_t length, std::vector<Result> &keyResults)
 {
-    keyResults.resize(length, MMC_ERROR);
+    keyResults.assign(length, MMC_ERROR);
     std::vector<size_t> flushTasks;
     std::lock_guard<std::mutex> guard(blobMutex_);
     size_t unexpectedOps = 0;
@@ -748,6 +750,10 @@ size_t MmcLocalServiceDefault::RemoveLocalSsdBackups(const std::vector<std::stri
 
 void MmcLocalServiceDefault::HandleUbsIoMetaEvents(int type, const std::vector<std::string> &keys)
 {
+    // Remote object chunks use SDK-private keys; SSD eviction events cannot identify a MemCache object.
+    if (options_.storageRemoteDram) {
+        return;
+    }
     if (keys.empty()) {
         return;
     }

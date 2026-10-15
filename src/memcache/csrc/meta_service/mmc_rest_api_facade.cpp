@@ -368,10 +368,13 @@ nlohmann::json MmcRestApiFacade::BuildLeader() const
     return result;
 }
 
-Result MmcRestApiFacade::QueryKey(const std::string &key, nlohmann::json &result) const
+Result MmcRestApiFacade::QueryKey(const std::string &key, nlohmann::json &result, bool noPromote) const
 {
     MMC_VALIDATE_RETURN(metaMgrProxy_ != nullptr, "meta manager proxy is nullptr", MMC_NOT_INITIALIZED);
     QueryRequest request(key);
+    if (noPromote) {
+        request.flag_ |= GET_KEY_INFO_NO_PROMOTE;
+    }
     QueryResponse response;
     Result ret = metaMgrProxy_->Query(request, response);
     if (ret != MMC_OK) {
@@ -381,10 +384,13 @@ Result MmcRestApiFacade::QueryKey(const std::string &key, nlohmann::json &result
     return MMC_OK;
 }
 
-Result MmcRestApiFacade::BatchQueryKeys(const std::vector<std::string> &keys, nlohmann::json &result) const
+Result MmcRestApiFacade::BatchQueryKeys(const std::vector<std::string> &keys, nlohmann::json &result, bool noPromote) const
 {
     MMC_VALIDATE_RETURN(metaMgrProxy_ != nullptr, "meta manager proxy is nullptr", MMC_NOT_INITIALIZED);
     BatchQueryRequest request(keys);
+    if (noPromote) {
+        request.flag_ |= GET_KEY_INFO_NO_PROMOTE;
+    }
     BatchQueryResponse response;
     Result ret = metaMgrProxy_->BatchQuery(request, response);
     if (ret != MMC_OK) {

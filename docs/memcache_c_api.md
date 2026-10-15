@@ -682,12 +682,16 @@ int32_t mmc_set_log_level(int level);
 - `dataOpType`：数据操作类型。
 - `localDRAMSize`：本地DRAM大小。
 - `localHBMSize`：本地HBM大小。
+- `storageEnabled`：是否启用 UBS-IO 下层存储。
+- `storageRemoteDram`：MemCache 的下层存储模式；`false` 为默认本地 SSD，`true` 为远端 DRAM，仅在 `storageEnabled=true` 时生效。对应配置项 `ock.mmc.local_service.storage.mode`。
 - `flags`：标志。
 - `accTlsConfig`：本地服务的TLS配置。
 - `logLevel`：日志级别。
 - `logFunc`：外部日志函数。
 - `hcomTlsConfig`：本地服务的TLS配置。
 - `configStoreTlsConfig`：config store的TLS配置。
+
+`storageRemoteDram` 追加在结构体末尾。直接使用 C API 的调用方应对配置结构体零初始化，并使用更新后的头文件重新编译；该字段不会自动设置 UBS-IO 模式；使用远端 DRAM 时，还需在原有配置文件中设置 `ubsio.kvc.mode = remote_dram_tcp`。
 
 ### mmc_buffer
 

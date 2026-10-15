@@ -34,18 +34,58 @@ typedef struct {
 
 typedef void (*UbsioMetaEventCallbackC)(void *context, const UbsioMetaEventC *events, uint32_t count);
 
+namespace {
+int32_t gInitResult = 0;
+uint32_t gRegisterCalls = 0;
+uint32_t gInitCalls = 0;
+bool gEmitInitEvent = false;
+UbsioMetaEventCallbackC gMetaCallback = nullptr;
+void *gMetaContext = nullptr;
+} // namespace
+
+extern "C" void UbsioMockConfigureInit(int32_t result, bool emitInitEvent)
+{
+    gInitResult = result;
+    gEmitInitEvent = emitInitEvent;
+    gRegisterCalls = 0;
+    gInitCalls = 0;
+    gMetaCallback = nullptr;
+    gMetaContext = nullptr;
+}
+
+extern "C" uint32_t UbsioMockGetRegisterCalls()
+{
+    return gRegisterCalls;
+}
+
+extern "C" uint32_t UbsioMockGetInitCalls()
+{
+    return gInitCalls;
+}
+
 // 初始化函数
 extern "C" int32_t UbsioKvCacheInit(int32_t deviceId)
 {
     (void)deviceId;
+    ++gInitCalls;
+    if (gInitResult != 0) {
+        return gInitResult;
+    }
+    if (gEmitInitEvent && gMetaCallback != nullptr) {
+        const char key[] = "init-event";
+        constexpr int32_t deleteEvent = 1;
+        const UbsioMetaEventC event{deleteEvent, key, sizeof(key) - 1};
+        gMetaCallback(gMetaContext, &event, 1);
+    }
     return 0;
 }
 
 // 注册元数据事件回调
 extern "C" int32_t UbsioKvCacheRegisterMetaEventCallback(UbsioMetaEventCallbackC callback, void *context)
 {
-    (void)callback;
-    (void)context;
+    ++gRegisterCalls;
+    gMetaCallback = callback;
+    gMetaContext = context;
     return 0;
 }
 
@@ -302,9 +342,10 @@ extern "C" int32_t UbsioKvCacheBatchFree(void **bufs, uint32_t keys_count)
 }
 
 // 退出清理函数
-extern "C" int32_t UbsioKvCacheExit()
+extern "C" void UbsioKvCacheExit()
 {
-    return 0;
+    gMetaCallback = nullptr;
+    gMetaContext = nullptr;
 }
 
 // 批量直接读取函数（带HBM）

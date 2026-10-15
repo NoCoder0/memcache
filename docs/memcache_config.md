@@ -65,6 +65,7 @@
 | ock.mmc.local_service.max.dram.size            | integer    | optional     | use dram.size        | [dram.size, 16TB]                                                                              | The MAX size of `ock.mmc.local_service.dram.size` in all local processes, necessary if ranks contribute different sizes of DRAM.                                                                                                         |
 | ock.mmc.local_service.max.hbm.size             | integer    | optional     | use hbm.size         | [0, 1TB]                                                                              | The MAX size of `ock.mmc.local_service.hbm.size` in all local processes, necessary if ranks contribute different sizes of HBM.                                                                                                           |
 | ock.mmc.local_service.storage.enabled          | bool       | optional     | false                | true/false                                                                            | enable SSD storage on local service. When enabled, SSD read/write and data eviction to SSD are supported                                                                                                                                 |
+| ock.mmc.local_service.storage.mode | string | optional | standalone | standalone / remote_dram | MemCache lower-tier storage mode; effective with storage.enabled=true. Startup-only; restart LocalService after changes. MemCache reads this setting; UBS-IO reads its own keys from the existing configuration file. |
 | ock.mmc.local_service.dram.best_effort.enabled | bool       | optional     | false                | true/false                                                                            | enable best-effort DRAM allocation strategy. When enabled, the system attempts to allocate DRAM                                                                                                                                          |
 |                                                |            |              |                      |                                                                                       |                                                                                                                                                                                                                                          |
 | ock.mmc.client.retry_milliseconds              | integer    | optional     | 0                    | [0, 600000]                                                                           | The total retry duration (retry interval is 200ms) when client requests meta service and the connection does not exist                                                                                                                   |
@@ -116,3 +117,35 @@
 | ock.mmc.kv_events.block_size     | integer    | optional    | 0       | [0, 4294967295]      | block size hint in event payload; 0 means not set                         |
 | ock.mmc.kv_events.queue_capacity | integer    | optional    | 65536   | [1, 4294967295]      | max number of events in the internal publish queue                        |
 | ock.mmc.kv_events.hash_as_int    | bool       | optional    | true    | true/false           | true: serialize seq_hashes as uint64; false: serialize as hex string      |
+
+## Remote DRAM storage configuration
+
+`ock.mmc.local_service.storage.enabled` enables the lower-tier storage path.
+`ock.mmc.local_service.storage.mode` selects MemCache behavior: `standalone` (default)
+for local SSD, or `remote_dram` for remote DRAM. Unknown values are rejected during
+configuration validation. The mode is a startup setting, not a dynamically reloaded option.
+
+Keep the existing configuration file and initialization flow. Add these settings
+and the required UBS-IO remote connection parameters to `mmc-local.conf`:
+
+```ini
+ock.mmc.local_service.storage.enabled = true
+ock.mmc.local_service.storage.mode = remote_dram
+ubsio.kvc.mode = remote_dram_tcp
+```
+
+LocalService continues to pass `config.configFilePath` through `InitUbsIo` to
+`UbsioClientInit`. A nonempty path sets `UBSIO_CONFIG_PATH` internally before SDK
+initialization, as before; no new path option or preparation API is required.
+MemCache reads its own mode setting, while UBS-IO parses the `ubsio.*` settings
+in the same file. Keep the two mode settings consistent. Existing SSD settings
+remain in place; remote endpoints, transport, TLS and capacity settings are
+interpreted by UBS-IO. Use an absolute configuration path as required by the remote SDK.
+
+In remote mode, LocalService ignores lower-tier metadata events whose SDK-private
+chunk keys cannot identify MemCache objects. MetaService needs no storage-mode
+setting. `Exists`/`BatchExist` keep the original metadata check and optional asynchronous
+prefetch controlled by `ock.mmc.storage.prefetch.enabled`; they do not wait for a remote
+read to verify existence. Actual reads can still fail when a recorded lower-tier copy
+is unavailable. `MMC_REMOTE_DRAM_VERIFY_ON_EXISTS` is no longer used, and the build
+option `MMC_REMOTE_DRAM_TCP` does not select this runtime behavior.

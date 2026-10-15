@@ -107,6 +107,7 @@ constexpr auto OCK_MMC_KV_EVENTS_QUEUE_CAPACITY = std::make_pair("ock.mmc.kv_eve
 constexpr auto OCK_MMC_KV_EVENTS_HASH_AS_INT = std::make_pair("ock.mmc.kv_events.hash_as_int", true);
 constexpr auto OCK_MMC_PREFETCH_ENABLED = std::make_pair("ock.mmc.storage.prefetch.enabled", true);
 constexpr auto OCK_MMC_PENDING_WAIT_TIMEOUT_MS = std::make_pair("ock.mmc.storage.pending_wait.timeout", 5000U);
+constexpr auto kLocalServiceStorageMode = std::make_pair("ock.mmc.local_service.storage.mode", "standalone");
 constexpr auto OCK_MMC_LOCAL_SERVICE_STORAGE_ENABLED = std::make_pair("ock.mmc.local_service.storage.enabled", false);
 constexpr auto OCK_MMC_LOCAL_SERVICE_DRAM_BEST_EFFORT =
     std::make_pair("ock.mmc.local_service.dram.best_effort.enabled", false);
