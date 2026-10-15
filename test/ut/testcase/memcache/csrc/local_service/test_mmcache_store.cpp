@@ -10,6 +10,7 @@
  * See the Mulan PSL v2 for more details.
 */
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <stdlib.h>
@@ -48,17 +49,27 @@ public:
 
 protected:
     std::string confPath_ = "./local-service.conf";
+    std::string oldUbsioConfigPath_;
+    bool hadUbsioConfigPath_ = false;
 };
 
 TestMmcacheStore::TestMmcacheStore() {}
 
 void TestMmcacheStore::SetUp()
 {
+    const char *ubsioConfigPath = std::getenv("UBSIO_CONFIG_PATH");
+    hadUbsioConfigPath_ = ubsioConfigPath != nullptr;
+    oldUbsioConfigPath_ = hadUbsioConfigPath_ ? ubsioConfigPath : "";
     cout << "this is TestMmcacheStore TEST_F setup:" << std::endl;
 }
 
 void TestMmcacheStore::TearDown()
 {
+    if (hadUbsioConfigPath_) {
+        setenv("UBSIO_CONFIG_PATH", oldUbsioConfigPath_.c_str(), 1);
+    } else {
+        unsetenv("UBSIO_CONFIG_PATH");
+    }
     cout << "this is TestMmcacheStore TEST_F teardown" << std::endl;
     std::remove(confPath_.c_str());
 }
@@ -417,10 +428,12 @@ TEST_F(TestMmcacheStore, BatchMalloc)
 // - SSD Exist 查询
 // - SSD Remove 删除
 
-// LocalService 启动时 InitUbsIo 接收 ssdSize 参数
-// ssdSize 透传给底层 UbsioClientInit(deviceId, ssdSize)
-TEST_F(TestMmcacheStore, SsdConfig_InitsUbsIoWithSsdSize)
+// LocalService keeps forwarding its configuration path to UBS-IO.
+TEST_F(TestMmcacheStore, SsdConfig_ForwardsOriginalConfigPathToUbsIo)
 {
+    constexpr const char *kUbsioConfigPath = "/tmp/mmc-store-ubsio.conf";
+    constexpr int kOverwriteEnvironment = 1;
+    setenv("UBSIO_CONFIG_PATH", kUbsioConfigPath, kOverwriteEnvironment);
     // 生成带 SSD 配置的 local conf
     std::string confPath = "./local-service-ssd.conf";
     std::ofstream outFile(confPath);
@@ -441,7 +454,7 @@ TEST_F(TestMmcacheStore, SsdConfig_InitsUbsIoWithSsdSize)
     outFile << "ock.mmc.client.timeout.seconds = 60" << std::endl;
     outFile << "ock.mmc.client.read_thread_pool.size = 32" << std::endl;
     outFile << "ock.mmc.client.write_thread_pool.size = 4" << std::endl;
-    //storage.size > 0 — LocalService 调用 InitUbsIo(deviceId, ssdSize)
+    // Enable lower storage using the existing shared configuration path.
     outFile << "ock.mmc.local_service.storage.enabled = true" << std::endl;
     outFile.close();
 
@@ -465,12 +478,12 @@ TEST_F(TestMmcacheStore, SsdConfig_InitsUbsIoWithSsdSize)
     mmc_meta_service_t meta_service = mmcs_meta_service_start(&metaServiceConfig);
     ASSERT_TRUE(meta_service != nullptr);
 
-    // Start LocalService — LocalService is responsible for InitUbsIo(deviceId, ssdSize)
+    // The mock accepts this relative path; the SDK receives the same path as MemCache.
     MMC_LOCAL_CONF_PATH = confPath;
     std::shared_ptr<ObjectStore> store = ObjectStore::CreateObjectStore();
     int ret = store->Init(0);
-    // Init 成功 — LocalService 调用 InitUbsIo(deviceId, 1GB)
     ASSERT_EQ(ret, 0);
+    EXPECT_STREQ(std::getenv("UBSIO_CONFIG_PATH"), confPath.c_str());
 
     store->TearDown();
     mmcs_meta_service_stop(meta_service);
