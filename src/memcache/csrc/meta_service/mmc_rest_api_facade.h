@@ -71,8 +71,8 @@ public:
     nlohmann::json BuildLeader() const;
     nlohmann::json BuildKvEventsStatus() const;
 
-    Result QueryKey(const std::string &key, nlohmann::json &result) const;
-    Result BatchQueryKeys(const std::vector<std::string> &keys, nlohmann::json &result) const;
+    Result QueryKey(const std::string &key, nlohmann::json &result, bool noPromote = false) const;
+    Result BatchQueryKeys(const std::vector<std::string> &keys, nlohmann::json &result, bool noPromote = false) const;
     Result GetAllKeysText(std::string &result) const;
 
     Result GetAllSegmentSnapshots(std::vector<RestSegmentSnapshot> &segments) const;

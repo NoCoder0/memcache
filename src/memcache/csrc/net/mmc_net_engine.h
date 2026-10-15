@@ -105,7 +105,7 @@ public:
         } else {
             std::string str{(char *)Data(), DataLen()};
             NetMsgUnpacker unpacker(str);
-            req.Deserialize(unpacker);
+            return req.Deserialize(unpacker);
         }
         return MMC_OK;
     }

@@ -23,6 +23,7 @@
 #include "mmc_meta_metric_manager.h"
 #include "mmc_msg_client_meta.h"
 #include "mmc_meta_net_server.h"
+#include "mmc_def.h"
 
 namespace ock {
 namespace mmc {
@@ -161,7 +162,7 @@ public:
     {
         MmcMetaMetricManager &metricManager = MmcMetaMetricManager::GetInstance();
         metricManager.IncrementRequestCounter(RestMetricType::QUERY, UINT32_MAX);
-        if ((req.flag_ & GET_KEY_INFO_FOR_LAYER_WISE) != 0) {
+        if ((req.flag_ & GET_KEY_INFO_FOR_LAYER_WISE) != 0 && (req.flag_ & GET_KEY_INFO_NO_PROMOTE) == 0) {
             metaMangerPtr_->PrefetchKeys({req.key_});
         }
         Result metaRet = metaMangerPtr_->Query(req.key_, req.operateId_, req.flag_, resp.queryInfo_);
@@ -173,7 +174,7 @@ public:
     {
         MmcMetaMetricManager &metricManager = MmcMetaMetricManager::GetInstance();
         metricManager.IncrementRequestCounter(RestMetricType::BATCH_QUERY, UINT32_MAX);
-        if ((req.flag_ & GET_KEY_INFO_FOR_LAYER_WISE) != 0) {
+        if ((req.flag_ & GET_KEY_INFO_FOR_LAYER_WISE) != 0 && (req.flag_ & GET_KEY_INFO_NO_PROMOTE) == 0) {
             metaMangerPtr_->PrefetchKeys(req.keys_);
         }
         std::vector<Result> results;

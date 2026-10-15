@@ -96,3 +96,45 @@ TEST_F(TestProtoMsg, BlobDeleteRequest_MsgIdMatchesMetaNetClientRegistration)
     // LM_* REQ/RSP 对共享同一 ID 值，与其他 LM_* 对不冲突
     EXPECT_EQ(static_cast<int16_t>(LM_BLOB_DELETE_REQ), static_cast<int16_t>(LM_BLOB_DELETE_RSP));
 }
+
+// Replication retains the baseline field order and the original message version.
+TEST_F(TestProtoMsg, MetaReplicateRequest_SerializeDeserialize)
+{
+    constexpr uint32_t rank = 3;
+    constexpr uint64_t dramAddress = 4096;
+    constexpr uint64_t bytes = 4096;
+    constexpr uint64_t leaseTtlMs = 2500;
+    MetaReplicateRequest req;
+    EXPECT_EQ(req.msgVer, 0);
+    req.destRankId = rank;
+    req.ops_ = {META_BACKUP_ADD, META_BACKUP_REMOVE};
+    req.keys_ = {"dram-key", "lower-key"};
+    req.blobs_ = {{rank, dramAddress, bytes, MEDIA_DRAM, READABLE, leaseTtlMs},
+                  {rank, 0, bytes, MEDIA_SSD}};
+
+    NetMsgPacker packer;
+    ASSERT_EQ(req.Serialize(packer), MMC_OK);
+    NetMsgPacker expected;
+    expected.Serialize(req.msgVer);
+    expected.Serialize(req.msgId);
+    expected.Serialize(req.destRankId);
+    expected.Serialize(req.ops_);
+    expected.Serialize(req.keys_);
+    expected.Serialize(req.blobs_);
+    EXPECT_EQ(packer.String(), expected.String());
+
+    NetMsgUnpacker unpacker(packer.String());
+    MetaReplicateRequest decoded;
+    ASSERT_EQ(decoded.Deserialize(unpacker), MMC_OK);
+    EXPECT_EQ(decoded.msgVer, req.msgVer);
+    EXPECT_EQ(decoded.msgId, req.msgId);
+    EXPECT_EQ(decoded.destRankId, req.destRankId);
+    EXPECT_EQ(decoded.ops_, req.ops_);
+    EXPECT_EQ(decoded.keys_, req.keys_);
+    ASSERT_EQ(decoded.blobs_.size(), req.blobs_.size());
+    EXPECT_EQ(decoded.blobs_, req.blobs_);
+    for (size_t i = 0; i < req.blobs_.size(); ++i) {
+        EXPECT_EQ(decoded.blobs_[i].state_, req.blobs_[i].state_);
+        EXPECT_EQ(decoded.blobs_[i].leaseTimeoutTtlMs_, req.blobs_[i].leaseTimeoutTtlMs_);
+    }
+}

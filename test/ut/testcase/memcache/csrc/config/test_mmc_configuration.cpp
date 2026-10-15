@@ -734,3 +734,30 @@ TEST_F(TestMmcConfiguration, SimplePerRankCounterIncrementDecrementBranches)
     const auto rankMap = counter.GetRankMap();
     EXPECT_EQ(rankMap.at(validRank), 4U); // 1 + 5 - 2
 }
+
+TEST_F(TestMmcConfiguration, StorageModeDefaultsToStandalone)
+{
+    ClientConfig clientConfig;
+    auto config = CreateLocalConfigWithCurrentDefaults();
+    ASSERT_TRUE(clientConfig.Setup(&config));
+    mmc_local_service_config_t localConfig{};
+    clientConfig.GetLocalServiceConfig(localConfig);
+    EXPECT_FALSE(localConfig.storageRemoteDram);
+    EXPECT_EQ(clientConfig.GetString(ConfConstant::kLocalServiceStorageMode), "standalone");
+}
+
+TEST_F(TestMmcConfiguration, StorageModeAcceptsRemoteDramAndRejectsUnknownMode)
+{
+    ClientConfig clientConfig;
+    auto config = CreateLocalConfigWithCurrentDefaults();
+    ASSERT_TRUE(clientConfig.Setup(&config));
+    const std::string key = ConfConstant::kLocalServiceStorageMode.first;
+    clientConfig.Set(key, std::string("remote_dram"));
+    EXPECT_TRUE(clientConfig.ValidateConf().empty());
+    mmc_local_service_config_t localConfig{};
+    clientConfig.GetLocalServiceConfig(localConfig);
+    EXPECT_TRUE(localConfig.storageRemoteDram);
+
+    clientConfig.Set(key, std::string("remote_dram_tcp"));
+    EXPECT_FALSE(clientConfig.ValidateConf().empty());
+}

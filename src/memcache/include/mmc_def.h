@@ -104,6 +104,7 @@ typedef struct {
     uint32_t dynamicConfigInterval;
     char configFilePath[PATH_MAX_SIZE];
     char bmIpPortDomain[DISCOVERY_URL_SIZE]; // original (domain) form of config_store_url, for periodic re-resolution
+    bool storageRemoteDram;                  // false: standalone SSD; true: remote DRAM; effective when storageEnabled
 } mmc_local_service_config_t;
 
 typedef struct {
@@ -137,6 +138,8 @@ enum affinity_policy : int {
 #define MAX_BLOB_COPIES 8
 
 constexpr uint32_t GET_KEY_INFO_FOR_LAYER_WISE = 1;
+// Query metadata without changing its LRU position or triggering layer rewarm.
+constexpr uint32_t GET_KEY_INFO_NO_PROMOTE = 1U << 1;
 
 typedef struct {
     uint16_t mediaType;
