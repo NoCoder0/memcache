@@ -136,3 +136,9 @@ set(BUILD_TESTS OFF)
 set(BUILD_FROM_MEMCACHE ON)
 add_subdirectory(memfabric_hybrid)
 set(BUILD_TESTS ${_ACTUAL_BUILD_TESTS})
+
+# This module is embedded in MemCache as well as libmf_smem. Keep its globals
+# private so loading both libraries cannot register two destructors for one map.
+set_target_properties(config_store_object PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
