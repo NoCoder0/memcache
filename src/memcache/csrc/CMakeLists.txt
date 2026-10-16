@@ -152,6 +152,10 @@ endif ()
 add_library(mmc_shared SHARED $<TARGET_OBJECTS:mmc_objects> $<TARGET_OBJECTS:ptracer_object> $<TARGET_OBJECTS:config_store_object>)
 set_target_properties(mmc_shared PROPERTIES OUTPUT_NAME "mf_memcache")
 target_link_libraries(mmc_shared PUBLIC pthread acc_tcp_net_static prometheus-cpp-simpleapi)
+# ACC_API explicitly exports the embedded TCP factory despite hidden compilation.
+# Bind the archive's implementation locally so its parser registry stays paired
+# with MemCache, even when libmf_smem has already been loaded globally.
+target_link_libraries(mmc_shared PRIVATE "-Wl,--exclude-libs,$<TARGET_FILE_NAME:acc_tcp_net_static>")
 if (MMC_ENABLE_KV_EVENTS)
     target_link_libraries(mmc_shared PUBLIC ${MMC_KV_EVENTS_ZMQ_LIBRARY})
 endif ()
