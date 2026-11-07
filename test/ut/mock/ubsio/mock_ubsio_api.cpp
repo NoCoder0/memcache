@@ -34,6 +34,12 @@ typedef struct {
 
 typedef void (*UbsioMetaEventCallbackC)(void *context, const UbsioMetaEventC *events, uint32_t count);
 
+extern "C" int32_t UbsioKvCachePollMetaEvents(UbsioMetaEventCallbackC, void *, uint32_t limit)
+{
+    constexpr uint32_t kMaxEvictBatch = 64;
+    return limit <= kMaxEvictBatch ? 0 : -1;
+}
+
 namespace {
 int32_t gInitResult = 0;
 uint32_t gRegisterCalls = 0;

@@ -20,15 +20,19 @@
 #include "mmc_functions.h"
 #include "mmc_configuration.h"
 #include "mmc_local_service_default.h"
+#include "dl_ubsio_api.h"
 
 namespace ock {
 namespace mmc {
 constexpr int TIMEOUT_THIRTY = 30;
 constexpr int CLIENT_THREAD_COUNT = 2;
 constexpr size_t kSsdRebuildQueryBatchSize = 1024;
+constexpr uint32_t kEvictPollIntervalSeconds = 1;
+constexpr uint32_t kEvictPollBatchLimit = 64;
 
 MmcLocalServiceDefault::~MmcLocalServiceDefault()
 {
+    StopUbsIoEvictPolling();
     StopConfigPolling();
 }
 
@@ -87,8 +91,9 @@ Result MmcLocalServiceDefault::Start(const mmc_local_service_config_t &config)
     }
     pid_ = getpid();
 
-    if (RegisterBm() != MMC_OK) {
-        MMC_LOG_ERROR("Failed to register bm, name=" << name_ << ", bmRankId=" << options_.rankId);
+    if (RegisterBm() != MMC_OK || StartUbsIoEvictPolling() != MMC_OK) {
+        MMC_LOG_ERROR("Failed to register bm or start eviction polling, name=" << name_
+                                                                            << ", bmRankId=" << options_.rankId);
         if (ubsIoProxyPtr_ != nullptr) {
             ubsIoProxyPtr_->SetMetaEventCallback(nullptr);
             ubsIoProxyPtr_->DestroyUbsIo();
@@ -126,6 +131,7 @@ void MmcLocalServiceDefault::Stop()
         return;
     }
     started_ = false;
+    StopUbsIoEvictPolling();
     StopConfigPolling();
 
     // 先解绑 UBSIO callback，防止 UBSIO 线程继续投递新事件
@@ -338,10 +344,22 @@ Result MmcLocalServiceDefault::InitUbsIo(int32_t deviceId, const std::string &co
     ubsIoProxyPtr_ = ubsIoProxy;
 
     ubsIoProxy->SetMetaEventCallback([this](int type, const std::vector<std::string> &keys) {
+        // The legacy BIO callback carries physical keys. Remote logical keys arrive via Poll below.
+        if (options_.storageRemoteDram) {
+            return;
+        }
         ubsioEventPool_->Enqueue([this, type, keys]() { HandleUbsIoMetaEvents(type, keys); });
     });
 
     auto ret = ubsIoProxy->InitUbsIo(deviceId, confPath);
+    if (ret == MMC_OK && options_.storageRemoteDram) {
+        // Establish tails before backup handlers/writers become reachable. No implicit rebaseline later.
+        ret = DlUbsioApi::UbsioPollMetaEvents(nullptr, nullptr, 0);
+        if (ret != MMC_OK) {
+            MMC_LOG_ERROR("Remote eviction journal bootstrap failed, ret=" << ret);
+            ubsIoProxy->DestroyUbsIo();
+        }
+    }
     if (ret != MMC_OK) {
         ubsIoProxy->SetMetaEventCallback(nullptr);
         ubsIoProxyPtr_ = nullptr;
@@ -750,10 +768,7 @@ size_t MmcLocalServiceDefault::RemoveLocalSsdBackups(const std::vector<std::stri
 
 void MmcLocalServiceDefault::HandleUbsIoMetaEvents(int type, const std::vector<std::string> &keys)
 {
-    // Remote object chunks use SDK-private keys; SSD eviction events cannot identify a MemCache object.
-    if (options_.storageRemoteDram) {
-        return;
-    }
+    // Remote callers pass logical keys after KVC generation filtering; standalone keeps its old path.
     if (keys.empty()) {
         return;
     }
@@ -781,6 +796,67 @@ void MmcLocalServiceDefault::HandleUbsIoMetaEvents(int type, const std::vector<s
                                                            << ", keyCount=" << keys.size());
     } else {
         MMC_LOG_DEBUG("UBS IO meta DELETE RPC success, keyCount=" << keys.size());
+    }
+}
+
+Result MmcLocalServiceDefault::StartUbsIoEvictPolling()
+{
+    if (!options_.storageEnabled || !options_.storageRemoteDram) {
+        return MMC_OK;
+    }
+    evictPollTaskName_ = "UbsIoEvictPolling:" + name_ + ":" + std::to_string(options_.rankId);
+    lastEvictPollResult_ = MMC_OK;
+    auto ret = RegisterPeriodicTask(evictPollTaskName_, kEvictPollIntervalSeconds, [this]() {
+        if (evictPollTask_.valid()) {
+            if (evictPollTask_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                return;
+            }
+            evictPollTask_.get();
+        }
+        // The timer never performs network IO; no overlapping or self-reenqueuing poll tasks.
+        evictPollTask_ = ubsioEventPool_->Enqueue([this]() { PollUbsIoEvictions(); });
+    });
+    if (ret != MMC_OK) {
+        UnregisterPeriodicTask(evictPollTaskName_);
+        evictPollTaskName_.clear();
+    }
+    return ret;
+}
+
+void MmcLocalServiceDefault::StopUbsIoEvictPolling()
+{
+    if (evictPollTaskName_.empty()) {
+        return;
+    }
+    // Unregister waits for the submitting timer callback; the future then covers the worker and
+    // its synchronous Meta notification. Both must finish before callback teardown/library unload.
+    UnregisterPeriodicTask(evictPollTaskName_);
+    evictPollTaskName_.clear();
+    if (evictPollTask_.valid()) {
+        try {
+            evictPollTask_.get();
+        } catch (...) {
+            MMC_LOG_WARN("Remote eviction poll task failed during shutdown");
+        }
+    }
+}
+
+void MmcLocalServiceDefault::PollUbsIoEvictions()
+{
+    auto callback = [](void *context, const UbsioMetaEventC *events, uint32_t count) {
+        std::vector<std::string> keys;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (events[i].type == UBSIO_META_DELETE_C && events[i].key != nullptr) {
+                keys.emplace_back(events[i].key, events[i].keyLen);
+            }
+        }
+        static_cast<MmcLocalServiceDefault *>(context)->HandleUbsIoMetaEvents(UBSIO_META_DELETE, keys);
+    };
+    const auto ret = DlUbsioApi::UbsioPollMetaEvents(callback, this, kEvictPollBatchLimit);
+    if (ret != lastEvictPollResult_) {
+        MMC_LOG_WARN("Remote eviction poll status changed, previous=" << lastEvictPollResult_ << ", current=" << ret
+                     << "; a journal gap requires reconciliation (automatic scan is not enabled)");
+        lastEvictPollResult_ = ret;
     }
 }
 

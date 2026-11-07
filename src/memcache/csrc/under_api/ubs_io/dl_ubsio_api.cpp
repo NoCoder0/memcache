@@ -36,6 +36,7 @@ ubsio_batch_deleteFunc DlUbsioApi::pUbsioBatchDelete = nullptr;
 ubsio_batch_get_lengthFunc DlUbsioApi::pUbsioBatchGetLength = nullptr;
 ubsio_batch_free_addressFunc DlUbsioApi::pUbsioBatchFreeAddress = nullptr;
 ubsio_register_meta_event_callbackFunc DlUbsioApi::pUbsioRegisterMetaEventCallback = nullptr;
+ubsio_poll_meta_eventsFunc DlUbsioApi::pUbsioPollMetaEvents = nullptr;
 ubsio_kv_cache_exitFunc DlUbsioApi::pUbsioKvCacheExit = nullptr;
 ubsio_get_resource_infoFunc DlUbsioApi::pUbsioGetResourceInfo = nullptr;
 
@@ -86,6 +87,7 @@ Result DlUbsioApi::LoadLibrary()
                 "UbsioKvCacheRegisterMetaEventCallback");
     DL_LOAD_SYM(pUbsioKvCacheExit, ubsio_kv_cache_exitFunc, ubsioHandle, "UbsioKvCacheExit");
     DlLoadSymOptional(pUbsioGetResourceInfo, ubsioHandle, "UbsioGetResourceInfo");
+    DlLoadSymOptional(pUbsioPollMetaEvents, ubsioHandle, "UbsioKvCachePollMetaEvents");
 
     gLoaded = true;
     return MMC_OK;
@@ -112,6 +114,7 @@ void DlUbsioApi::CleanupLibrary()
     pUbsioBatchGetLength = nullptr;
     pUbsioBatchFreeAddress = nullptr;
     pUbsioRegisterMetaEventCallback = nullptr;
+    pUbsioPollMetaEvents = nullptr;
     pUbsioGetResourceInfo = nullptr;
 
     if (pUbsioKvCacheExit != nullptr) {

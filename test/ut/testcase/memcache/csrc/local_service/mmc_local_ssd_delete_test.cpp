@@ -70,6 +70,18 @@ struct EngineMember {
     using Type = NetEnginePtr MetaNetClient::*;
     friend Type GetMember(EngineMember);
 };
+struct PollFutureMember {
+    using Type = std::future<void> MmcLocalServiceDefault::*;
+    friend Type GetMember(PollFutureMember);
+};
+struct PollNameMember {
+    using Type = std::string MmcLocalServiceDefault::*;
+    friend Type GetMember(PollNameMember);
+};
+struct StopPollMember {
+    using Type = void (MmcLocalServiceDefault::*)();
+    friend Type GetMember(StopPollMember);
+};
 
 template struct DeleteTestAccessor<BlobMapMember, &MmcLocalServiceDefault::blobMap_>;
 template struct DeleteTestAccessor<BlobMutexMember, &MmcLocalServiceDefault::blobMutex_>;
@@ -77,6 +89,9 @@ template struct DeleteTestAccessor<OptionsMember, &MmcLocalServiceDefault::optio
 template struct DeleteTestAccessor<MetaClientMember, &MmcLocalServiceDefault::metaNetClient_>;
 template struct DeleteTestAccessor<DeleteHandlerMember, &MmcLocalServiceDefault::HandleUbsIoMetaEvents>;
 template struct DeleteTestAccessor<EngineMember, &MetaNetClient::engine_>;
+template struct DeleteTestAccessor<PollFutureMember, &MmcLocalServiceDefault::evictPollTask_>;
+template struct DeleteTestAccessor<PollNameMember, &MmcLocalServiceDefault::evictPollTaskName_>;
+template struct DeleteTestAccessor<StopPollMember, &MmcLocalServiceDefault::StopUbsIoEvictPolling>;
 
 class DeleteEventNetEngine : public NetEngine {
 public:
@@ -253,6 +268,45 @@ TEST_F(MmcLocalSsdDeleteTest, EmptyBatchDoesNotMutateOrNotify)
 
     EXPECT_EQ(Backups(), before);
     EXPECT_TRUE(engine_->requests.empty());
+}
+
+TEST_F(MmcLocalSsdDeleteTest, RemoteLogicalDeleteUsesExistingNotification)
+{
+    (local_.*GetMember(OptionsMember{})).storageRemoteDram = true;
+    AttachMeta();
+    Delete({"mixed", "ssd-only", "other-rank"});
+    ASSERT_EQ(engine_->requests.size(), kOneRequest);
+    EXPECT_EQ(engine_->requests.front().rank_, kLocalRank);
+    EXPECT_EQ(Backups().count("ssd-only"), 0U);
+    EXPECT_EQ(Backups().at("mixed"), (std::vector<MmcMemBlobDesc>{dram_, hbm_}));
+    EXPECT_EQ(Backups().count("other-rank"), kOneRequest);
+}
+
+TEST_F(MmcLocalSsdDeleteTest, StopWaitsForInFlightEvictionPoll)
+{
+    constexpr auto kPendingWait = std::chrono::milliseconds(30);
+    std::promise<void> releaseWorker;
+    std::promise<void> workerEntered;
+    std::promise<void> stopEntered;
+    auto release = releaseWorker.get_future();
+    local_.*GetMember(PollNameMember{}) = "test-eviction-poll-drain";
+    local_.*GetMember(PollFutureMember{}) = std::async(std::launch::async, [&]() {
+        workerEntered.set_value();
+        release.wait();
+    });
+    workerEntered.get_future().wait();
+    auto stopping = std::async(std::launch::async, [&]() {
+        stopEntered.set_value();
+        (local_.*GetMember(StopPollMember{}))();
+    });
+    stopEntered.get_future().wait();
+    const auto whileRunning = stopping.wait_for(kPendingWait);
+    releaseWorker.set_value();
+    stopping.get();
+    EXPECT_EQ(whileRunning, std::future_status::timeout);
+    EXPECT_TRUE((local_.*GetMember(PollNameMember{})).empty());
+    EXPECT_FALSE((local_.*GetMember(PollFutureMember{})).valid());
+    (local_.*GetMember(StopPollMember{}))(); // Repeated stop is harmless.
 }
 
 TEST_F(MmcLocalSsdDeleteTest, UnknownEventDoesNotMutateOrNotify)

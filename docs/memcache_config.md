@@ -142,10 +142,102 @@ in the same file. Keep the two mode settings consistent. Existing SSD settings
 remain in place; remote endpoints, transport, TLS and capacity settings are
 interpreted by UBS-IO. Use an absolute configuration path as required by the remote SDK.
 
-In remote mode, LocalService ignores lower-tier metadata events whose SDK-private
-chunk keys cannot identify MemCache objects. MetaService needs no storage-mode
-setting. `Exists`/`BatchExist` keep the original metadata check and optional asynchronous
+In remote mode, LocalService ignores the legacy callback carrying SDK-private chunk
+keys and polls the remote eviction journal for translated logical keys, as described
+below. MetaService needs no storage-mode setting. `Exists`/`BatchExist` keep the original
+metadata check and optional asynchronous
 prefetch controlled by `ock.mmc.storage.prefetch.enabled`; they do not wait for a remote
 read to verify existence. Actual reads can still fail when a recorded lower-tier copy
 is unavailable. `MMC_REMOTE_DRAM_VERIFY_ON_EXISTS` is no longer used, and the build
 option `MMC_REMOTE_DRAM_TCP` does not select this runtime behavior.
+
+### Remote DRAM eviction notifications (V2, first stage)
+
+This path is enabled by the existing `storage.enabled=true` and
+`storage.mode=remote_dram` settings; it adds no configuration keys or dedicated threads.
+Upgrade the BIO server, `libbio_sdk`, UBS-IO KVC library and MemCache together.
+Standalone SSD mode can still load libraries without the new polling symbols;
+remote mode fails initialization if the symbols or remote journal service are unavailable.
+
+The notification path is:
+
+```text
+BIO memory discard succeeds
+  -> WCacheManager eviction callback appends a physical key to its ring
+  -> BioPollEvictEvents reads a batch using each SDK process's per-node cursor
+  -> UbsioKvCachePollMetaEvents filters generations and translates logical keys
+  -> LocalService HandleUbsIoMetaEvents removes the local lower-tier descriptor
+  -> existing UbsIoMetaDeleteRequest / MetaService RemoveSsdBlob(key, rank)
+```
+
+Remote DRAM continues to use the existing SSD/lower-tier descriptor type. The last
+step removes that rank's lower-tier descriptor while retaining DRAM/HBM and other-rank
+copies. The request format and MetaService handler are unchanged.
+
+**BIO journal.** `WCacheManager` allocates a ring only when `hasDiskCache=false`.
+Each record contains a monotonically increasing `seq` and the physical key; the
+node also keeps a random nonzero `epoch` for this initialization and `nextSeq`.
+The ring has 65,536 records. With a 256-byte key field and 8-byte sequence number,
+its record storage is 16.5 MiB per node, independent of DRAM capacity. Appending
+uses a short mutex-protected overwrite and performs no RPC. Reads copy at most
+64 records while holding the same mutex; callbacks run after it has been released.
+
+There is no acknowledgement table or per-client queue on the server. Reading does
+not delete records: the oldest slot is overwritten as the ring advances. Multiple
+SDK processes can therefore consume the same node log independently. The protocol
+returns `epoch`, `firstSeq` (oldest retained sequence), `nextSeq`, status and records.
+A cursor before `firstSeq-1`, or beyond the current tail, receives `GAP`; a changed
+epoch receives `EPOCH_CHANGED`.
+
+**SDK cursors.** The only new BIO opcode is `BIO_OP_SDK_READ_EVICT_LOG`, appended to
+the opcode enum to preserve existing values. `BioPollEvictEvents(callback, context,
+limit)` uses the existing node view, configured remote IPs and synchronous control
+channel. One SDK process supports one polling consumer. During LocalService startup,
+`limit=0` records every configured node's current tail before backup writers are
+enabled. It does not replay historical events or reset an established cursor.
+Positive limits must be at most 64 and require successful bootstrap.
+
+Each successful node batch is delivered synchronously before its cursor advances.
+A transport failure retains that node's cursor for the next attempt. Other nodes
+may have delivered batches even when the overall return code is nonzero. A gap,
+epoch change, or previously unseen node after bootstrap latches a reconciliation
+requirement; subsequent calls do not silently jump to a new tail. `limit=0` cannot
+clear this state. Reconciliation of lower-tier descriptors must happen externally
+before SDK exit/reinitialization; merely restarting the poll is not reconciliation.
+
+**Logical key translation.** `UbsioKvCachePollMetaEvents` reuses the existing C event
+type and the KVC process's `committed` directory. It validates the physical key
+format, finds the existing hash shard, and matches key hash, generation and chunk
+index (including the manifest sentinel). Events for older generations or objects
+absent from that directory are ignored. A chunk or manifest eviction invalidates
+the whole logical object's lower-tier copy. Duplicate logical key/generation pairs
+are merged within one polling call. Directory locks are released before invoking
+MemCache; the directory and payload are not deleted by this notification path.
+Translation visits one existing directory shard per physical record (approximately
+`logical_key_count / 256` entries with balanced hashing); it performs no per-chunk
+existence RPC and adds no reverse-index maintenance to Put/Delete.
+
+**Scheduling and shutdown.** LocalService registers a one-second task with the
+existing periodic scheduler. The timer only submits work to `ubsioEventPool_`.
+A stored future prevents overlapping polls, so a slow RPC does not create a growing
+queue of polling tasks. The worker consumes at most one batch per node and calls
+the existing metadata-delete handler directly. Shutdown first unregisters the timer,
+then waits for the in-flight poll and its synchronous callbacks, then tears down
+callbacks, the pool and UBS-IO. No polling thread is added in BIO or KVC.
+
+**First-stage limits.** Notifications are asynchronous: a Get can still race with
+eviction before metadata is updated. The existing void callback does not acknowledge
+MetaService delivery; this version adds neither durable retries for a failed metadata
+RPC nor an automatic full scan after GAP. Generation filtering is local to KVC:
+the unchanged MetaService request carries key/rank only, so it does not provide
+end-to-end version protection against a concurrent replacement/publication race.
+These require a subsequent design change before claiming reliable invalidation.
+
+The initial polling budget is 64 physical records per node per second at best,
+less when the shared pool or RPCs are slow. Idle responses are fixed-size (16,928
+bytes with the current layout). If the journal arrival rate exceeds consumption,
+backlog grows and eventually causes GAP. For a stopped consumer the retention window
+is approximately `65536 / eviction_records_per_second`; tuning the batch/drain budget
+requires load testing. This first version has no automatic recovery from sustained
+overload. Poll failures and recovery are logged on status changes; journal GAP/epoch
+details are logged by BIO SDK when detected.

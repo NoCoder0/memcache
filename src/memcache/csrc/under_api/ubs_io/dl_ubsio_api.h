@@ -55,6 +55,7 @@ typedef struct {
 typedef void (*UbsioMetaEventCallbackC)(void *context, const UbsioMetaEventC *events, uint32_t count);
 
 using ubsio_register_meta_event_callbackFunc = int32_t (*)(UbsioMetaEventCallbackC callback, void *context);
+using ubsio_poll_meta_eventsFunc = int32_t (*)(UbsioMetaEventCallbackC, void *, uint32_t);
 using ubsio_kv_cache_exitFunc = void (*)();
 
 class DlUbsioApi {
@@ -173,6 +174,11 @@ public:
         return pUbsioRegisterMetaEventCallback(callback, context);
     }
 
+    static inline Result UbsioPollMetaEvents(UbsioMetaEventCallbackC callback, void *context, uint32_t limit)
+    {
+        return pUbsioPollMetaEvents == nullptr ? MMC_NOT_INITIALIZED : pUbsioPollMetaEvents(callback, context, limit);
+    }
+
     static inline Result UbsioGetResourceInfo(UbsioResourceInfo &info)
     {
         if (pUbsioGetResourceInfo == nullptr) {
@@ -201,6 +207,7 @@ private:
     static ubsio_batch_get_lengthFunc pUbsioBatchGetLength;
     static ubsio_batch_free_addressFunc pUbsioBatchFreeAddress;
     static ubsio_register_meta_event_callbackFunc pUbsioRegisterMetaEventCallback;
+    static ubsio_poll_meta_eventsFunc pUbsioPollMetaEvents;
     static ubsio_kv_cache_exitFunc pUbsioKvCacheExit;
     static ubsio_get_resource_infoFunc pUbsioGetResourceInfo;
 };

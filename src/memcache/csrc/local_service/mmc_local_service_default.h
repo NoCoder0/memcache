@@ -118,6 +118,12 @@ private:
 
     std::string ResolveBackendId();
     MmcThreadPoolPtr ubsioEventPool_;
+    Result StartUbsIoEvictPolling();
+    void StopUbsIoEvictPolling();
+    void PollUbsIoEvictions();
+    std::string evictPollTaskName_;
+    std::future<void> evictPollTask_;
+    Result lastEvictPollResult_{MMC_OK};
 
     // Dynamic config polling
     static constexpr const char *configPollTaskName = "DynamicConfigPolling";
